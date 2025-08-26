@@ -1,0 +1,1 @@
+{"version":3,"file":"blockConflictTolerance.d.ts","sourceRoot":"","sources":["../../../../../evm/multicall/src/constants/blockConflictTolerance.ts"],"names":[],"mappings":"AAAA,OAAO,EAAE,OAAO,EAAE,MAAM,qBAAqB,CAAC;AAE9C,eAAO,MAAM,gCAAgC,IAAI,CAAC;AAElD,eAAO,MAAM,wBAAwB,EAAE;KAAG,GAAG,IAAI,OAAO,CAAC,CAAC,EAAE,MAAM;CAEjE,CAAC"}

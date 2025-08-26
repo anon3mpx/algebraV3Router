@@ -1,0 +1,1 @@
+{"version":3,"file":"v3.d.ts","sourceRoot":"","sources":["../../../../evm/constants/gasModel/v3.ts"],"names":[],"mappings":"AAAA,OAAO,EAAE,OAAO,EAAE,MAAM,kBAAkB,CAAC;AAG3C,eAAO,MAAM,oBAAoB,QAAY,CAAC;AAE9C,eAAO,MAAM,iBAAiB,OAAQ,OAAO,KAAG,MAO/C,CAAC;AACF,eAAO,MAAM,kBAAkB,OAAQ,OAAO,KAAG,MAOhD,CAAC;AAEF,eAAO,MAAM,eAAe,OAAQ,OAAO,KAAG,MAO7C,CAAC"}

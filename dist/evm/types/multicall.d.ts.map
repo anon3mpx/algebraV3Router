@@ -1,0 +1,1 @@
+{"version":3,"file":"multicall.d.ts","sourceRoot":"","sources":["../../../evm/types/multicall.ts"],"names":[],"mappings":"AAAA,MAAM,MAAM,oBAAoB,GAAG;IACjC,eAAe,EAAE,MAAM,CAAA;IACvB,mBAAmB,CAAC,EAAE,OAAO,CAAA;CAC9B,CAAA;AAED,MAAM,MAAM,qBAAqB,GAAG;IAClC,aAAa,EAAE,oBAAoB,CAAA;IACnC,uBAAuB,EAAE,oBAAoB,CAAA;IAC7C,2BAA2B,EAAE,oBAAoB,CAAA;CAClD,CAAA"}
