@@ -1,5 +1,5 @@
 export declare const usdGasTokensByChain: {
-    84532: import("@pancakeswap/sdk").ERC20Token[];
+  943: import("@pancakeswap/sdk").ERC20Token[];
 };
 export * from "./stableSwap";
 export * from "./v2";

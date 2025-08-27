@@ -1,22 +1,70 @@
-import { Percent, ERC20Token, TradeType, ZERO, ONE, CurrencyAmount, ONE_HUNDRED_PERCENT, Fraction, Token as Token$1, Pair, Price as Price$1, validateAndParseAddress } from '@pancakeswap/sdk';
-import { computePoolAddress, computeCustomPoolAddress, Percent as Percent$1, ADDRESS_ZERO, ZERO as ZERO$1, Price, CurrencyAmount as CurrencyAmount$1, Native, Token } from '@cryptoalgebra/custom-pools-sdk';
-import invariant5 from 'tiny-invariant';
-import flatMap from 'lodash/flatMap.js';
-import memoize from 'lodash/memoize.js';
-import uniqBy from 'lodash/uniqBy.js';
-import { createPublicClient, fallback, http, keccak256, encodePacked, getCreate2Address, getAddress, encodeFunctionData, decodeFunctionResult, defineChain, getContract, BaseError, TimeoutError } from 'viem';
-import { ADDRESS_ZERO as ADDRESS_ZERO$1, Pool, parseProtocolFees, SelfPermit, toHex, Position, TickList, Multicall, Payments, NonfungiblePositionManager } from '@pancakeswap/v3-sdk';
-import debug from 'debug';
-import { CurrencyAmount as CurrencyAmount$2 } from '@pancakeswap/swap-sdk-core';
-import mapValues from 'lodash/mapValues.js';
-import FixedReverseHeap from 'mnemonist/fixed-reverse-heap.js';
-import Queue from 'mnemonist/queue.js';
-import sum from 'lodash/sum.js';
-import chunk from 'lodash/chunk.js';
-import { gql, GraphQLClient } from 'graphql-request';
-import retry from 'async-retry';
-import stats from 'stats-lite';
-import { z } from 'zod';
+import {
+  Percent,
+  ERC20Token,
+  TradeType,
+  ZERO,
+  ONE,
+  CurrencyAmount,
+  ONE_HUNDRED_PERCENT,
+  Fraction,
+  Token as Token$1,
+  Pair,
+  Price as Price$1,
+  validateAndParseAddress,
+} from "@pancakeswap/sdk";
+import {
+  computePoolAddress,
+  computeCustomPoolAddress,
+  Percent as Percent$1,
+  ADDRESS_ZERO,
+  ZERO as ZERO$1,
+  Price,
+  CurrencyAmount as CurrencyAmount$1,
+  Native,
+  Token,
+} from "@cryptoalgebra/custom-pools-sdk";
+import invariant5 from "tiny-invariant";
+import flatMap from "lodash/flatMap.js";
+import memoize from "lodash/memoize.js";
+import uniqBy from "lodash/uniqBy.js";
+import {
+  createPublicClient,
+  fallback,
+  http,
+  keccak256,
+  encodePacked,
+  getCreate2Address,
+  getAddress,
+  encodeFunctionData,
+  decodeFunctionResult,
+  defineChain,
+  getContract,
+  BaseError,
+  TimeoutError,
+} from "viem";
+import {
+  ADDRESS_ZERO as ADDRESS_ZERO$1,
+  Pool,
+  parseProtocolFees,
+  SelfPermit,
+  toHex,
+  Position,
+  TickList,
+  Multicall,
+  Payments,
+  NonfungiblePositionManager,
+} from "@pancakeswap/v3-sdk";
+import debug from "debug";
+import { CurrencyAmount as CurrencyAmount$2 } from "@pancakeswap/swap-sdk-core";
+import mapValues from "lodash/mapValues.js";
+import FixedReverseHeap from "mnemonist/fixed-reverse-heap.js";
+import Queue from "mnemonist/queue.js";
+import sum from "lodash/sum.js";
+import chunk from "lodash/chunk.js";
+import { gql, GraphQLClient } from "graphql-request";
+import retry from "async-retry";
+import stats from "stats-lite";
+import { z } from "zod";
 
 var __defProp = Object.defineProperty;
 var __export = (target, all) => {
@@ -30,25 +78,25 @@ var BETTER_TRADE_LESS_HOPS_THRESHOLD = new Percent(BigInt(50), BIPS_BASE);
 
 // evm/chains/src/chainId.ts
 var ChainId = /* @__PURE__ */ ((ChainId3) => {
-  ChainId3[ChainId3["BASE_SEPOLIA"] = 84532] = "BASE_SEPOLIA";
-  ChainId3[ChainId3["PULSECHAIN_TESTNET"] = 943] = "PULSECHAIN_TESTNET";
+  // ChainId3[ChainId3["BASE_SEPOLIA"] = 84532] = "BASE_SEPOLIA";
+  ChainId3[(ChainId3["PULSECHAIN_TESTNET"] = 943)] = "PULSECHAIN_TESTNET";
   return ChainId3;
 })(ChainId || {});
 
 // evm/chains/src/chainNames.ts
 var chainNames = {
-  [84532 /* BASE_SEPOLIA */]: "base-sepolia",
-  [943 /* PULSECHAIN_TESTNET */]: "pulsechain-testnet"
+  // [84532 /* BASE_SEPOLIA */]: "base-sepolia",
+  [943 /* PULSECHAIN_TESTNET */]: "pulsechain-testnet",
 };
 Object.entries(chainNames).reduce((acc, [chainId, chainName]) => {
   return {
     [chainName]: chainId,
-    ...acc
+    ...acc,
   };
 }, {});
 var defiLlamaChainNames = {
-  [84532 /* BASE_SEPOLIA */]: "",
-  [943 /* PULSECHAIN_TESTNET */]: "pulse"
+  // [84532 /* BASE_SEPOLIA */]: "",
+  [943 /* PULSECHAIN_TESTNET */]: "pulse",
 };
 
 // evm/chains/src/utils.ts
@@ -56,47 +104,79 @@ function getLlamaChainName(chainId) {
   return defiLlamaChainNames[chainId];
 }
 var POOL_INIT_CODE_HASH = {
-  [84532 /* BASE_SEPOLIA */]: "0xa18736c3ee97fe3c96c9428c0cc2a9116facec18e84f95f9da30543f8238a782",
-  [943 /* PULSECHAIN_TESTNET */]: "0x62441ebe4e4315cf3d49d5957f94d66b253dbabe7006f34ad7f70947e60bf15c"
+  // [84532 /* BASE_SEPOLIA */]: "0xa18736c3ee97fe3c96c9428c0cc2a9116facec18e84f95f9da30543f8238a782",
+  [943 /* PULSECHAIN_TESTNET */]:
+    "0x62441ebe4e4315cf3d49d5957f94d66b253dbabe7006f34ad7f70947e60bf15c",
 };
 var ALGEBRA_POOL_DEPLOYER = {
-  [84532 /* BASE_SEPOLIA */]: "0x58fcDe2268c9cD0168bddC81ba4Cf9F174160258",
-  [943 /* PULSECHAIN_TESTNET */]: "0xd2842C6Fcec6D5020844bdDE0Fd3b7DcAb3470e4"
+  // [84532 /* BASE_SEPOLIA */]: "0x58fcDe2268c9cD0168bddC81ba4Cf9F174160258",
+  [943 /* PULSECHAIN_TESTNET */]: "0xd2842C6Fcec6D5020844bdDE0Fd3b7DcAb3470e4",
 };
 var ALGEBRA_QUOTER_V2 = {
-  [84532 /* BASE_SEPOLIA */]: "0x1c219ba68A9100E4F3475A624cf225ADA02c0F1B",
-  [943 /* PULSECHAIN_TESTNET */]: "0x4966e2DEE5a908586e58c5776B3996C108804FB5"
+  // [84532 /* BASE_SEPOLIA */]: "0x1c219ba68A9100E4F3475A624cf225ADA02c0F1B",
+  [943 /* PULSECHAIN_TESTNET */]: "0x4966e2DEE5a908586e58c5776B3996C108804FB5",
 };
 var ALGEBRA_ROUTER = {
-  [84532 /* BASE_SEPOLIA */]: "0x3400D4f83c528A0E19c380d92DD100eA51d8980c",
-  [943 /* PULSECHAIN_TESTNET */]: "0xe227B51F5D7079fAa07b7621657e3aa5906d2185"
+  // [84532 /* BASE_SEPOLIA */]: "0x3400D4f83c528A0E19c380d92DD100eA51d8980c",
+  [943 /* PULSECHAIN_TESTNET */]: "0xe227B51F5D7079fAa07b7621657e3aa5906d2185",
   // SwapRouter
 };
 var CUSTOM_POOL_BASE = {
-  [84532 /* BASE_SEPOLIA */]: ADDRESS_ZERO
+  // [84532 /* BASE_SEPOLIA */]: ADDRESS_ZERO,
+  [943 /* PULSECHAIN_TESTNET */]: ADDRESS_ZERO,
 };
 var CUSTOM_POOL_DEPLOYER_ALL_INCLUSIVE = {
-  [84532 /* BASE_SEPOLIA */]: "0x44564Ed09f4d88ae963E6579709973Eb7C109A30",
-  [943 /* PULSECHAIN_TESTNET */]: "0xd2842C6Fcec6D5020844bdDE0Fd3b7DcAb3470e4"
+  // [84532 /* BASE_SEPOLIA */]: "0x44564Ed09f4d88ae963E6579709973Eb7C109A30",
+  [943 /* PULSECHAIN_TESTNET */]: "0xd2842C6Fcec6D5020844bdDE0Fd3b7DcAb3470e4",
 };
-var baseSepoliaTokens = {
-  usdt: new ERC20Token(84532 /* BASE_SEPOLIA */, "0xAbAc6f23fdf1313FC2E9C9244f666157CcD32990", 6, "USDC", "USDC"),
-  weth: new ERC20Token(84532 /* BASE_SEPOLIA */, "0x4200000000000000000000000000000000000006", 18, "WETH", "WETH")
-};
+// var baseSepoliaTokens = {
+//   usdt: new ERC20Token(
+//     84532 /* BASE_SEPOLIA */,
+//     "0xAbAc6f23fdf1313FC2E9C9244f666157CcD32990",
+//     6,
+//     "USDC",
+//     "USDC"
+//   ),
+//   weth: new ERC20Token(
+//     84532 /* BASE_SEPOLIA */,
+//     "0x4200000000000000000000000000000000000006",
+//     18,
+//     "WETH",
+//     "WETH"
+//   ),
+// };
 var pulsechainTestnetTokens = {
-  wpls: new ERC20Token(943 /* PULSECHAIN_TESTNET */, '0x70499adEBB11Efd915E3b69E700c331778628707', 18, 'WPLS', 'Wrapped PLS'),
-  rob: new ERC20Token(943 /* PULSECHAIN_TESTNET */, '0x60D08BfDB5Dbe6Ea85C0F7746366F442CaE6a475', 18, 'ROB', 'RiseOfBat'),
-  ros: new ERC20Token(943 /* PULSECHAIN_TESTNET */, '0x3ec59e2794Eb384237fF6854C9813304347CD823', 18, 'ROS', 'RiseOfSuperman')
+  wpls: new ERC20Token(
+    943 /* PULSECHAIN_TESTNET */,
+    "0x70499adEBB11Efd915E3b69E700c331778628707",
+    18,
+    "WPLS",
+    "Wrapped PLS"
+  ),
+  rob: new ERC20Token(
+    943 /* PULSECHAIN_TESTNET */,
+    "0x60D08BfDB5Dbe6Ea85C0F7746366F442CaE6a475",
+    18,
+    "ROB",
+    "RiseOfBat"
+  ),
+  ros: new ERC20Token(
+    943 /* PULSECHAIN_TESTNET */,
+    "0x3ec59e2794Eb384237fF6854C9813304347CD823",
+    18,
+    "ROS",
+    "RiseOfSuperman"
+  ),
 };
 
 // evm/constants/exchange.ts
 var SMART_ROUTER_ADDRESSES = {
-  [84532 /* BASE_SEPOLIA */]: ALGEBRA_ROUTER[84532 /* BASE_SEPOLIA */],
-  [943 /* PULSECHAIN_TESTNET */]: ALGEBRA_ROUTER[943 /* PULSECHAIN_TESTNET */]
+  // [84532 /* BASE_SEPOLIA */]: ALGEBRA_ROUTER[84532 /* BASE_SEPOLIA */],
+  [943 /* PULSECHAIN_TESTNET */]: ALGEBRA_ROUTER[943 /* PULSECHAIN_TESTNET */],
 };
 var BASES_TO_CHECK_TRADES_AGAINST = {
-  [84532 /* BASE_SEPOLIA */]: Object.values(baseSepoliaTokens),
-  [943 /* PULSECHAIN_TESTNET */]: Object.values(pulsechainTestnetTokens)
+  // [84532 /* BASE_SEPOLIA */]: Object.values(baseSepoliaTokens),
+  [943 /* PULSECHAIN_TESTNET */]: Object.values(pulsechainTestnetTokens),
 };
 var ADDITIONAL_BASES = {};
 var CUSTOM_BASES = {};
@@ -113,7 +193,9 @@ var COST_PER_EXTRA_HOP_V2 = BigInt(5e4);
 var COST_PER_UNINIT_TICK = BigInt(0);
 var BASE_SWAP_COST_V3 = (id) => {
   switch (id) {
-    case 84532 /* BASE_SEPOLIA */:
+    // case 84532 /* BASE_SEPOLIA */:
+    //   return BigInt(2e3);
+    case 943 /* PULSECHAIN_TESTNET */:
       return BigInt(2e3);
     default:
       return BigInt(0);
@@ -121,16 +203,20 @@ var BASE_SWAP_COST_V3 = (id) => {
 };
 var COST_PER_INIT_TICK = (id) => {
   switch (id) {
-    case 84532 /* BASE_SEPOLIA */:
+    case 943 /* PULSECHAIN_TESTNET */:
       return BigInt(31e3);
+    // case 84532 /* BASE_SEPOLIA */:
+    //   return BigInt(31e3);
     default:
       return BigInt(0);
   }
 };
 var COST_PER_HOP_V3 = (id) => {
   switch (id) {
-    case 84532 /* BASE_SEPOLIA */:
+    case 943 /* PULSECHAIN_TESTNET */:
       return BigInt(8e4);
+    // case 84532 /* BASE_SEPOLIA */:
+    //   return BigInt(8e4);
     default:
       return BigInt(0);
   }
@@ -138,23 +224,25 @@ var COST_PER_HOP_V3 = (id) => {
 
 // evm/constants/gasModel/index.ts
 var usdGasTokensByChain = {
-  [84532 /* BASE_SEPOLIA */]: [baseSepoliaTokens.usdt]
+  // [84532 /* BASE_SEPOLIA */]: [baseSepoliaTokens.usdt],
+  [943 /* PULSECHAIN_TESTNET */]: [pulsechainTestnetTokens.wpls],
 };
 
 // evm/constants/multicall.ts
 var DEFAULT = {
   defaultConfig: {
-    gasLimitPerCall: 1e6
+    gasLimitPerCall: 1e6,
   },
   gasErrorFailureOverride: {
-    gasLimitPerCall: 2e6
+    gasLimitPerCall: 2e6,
   },
   successRateFailureOverrides: {
-    gasLimitPerCall: 2e6
-  }
+    gasLimitPerCall: 2e6,
+  },
 };
 var BATCH_MULTICALL_CONFIGS = {
-  [84532 /* BASE_SEPOLIA */]: DEFAULT
+  // [84532 /* BASE_SEPOLIA */]: DEFAULT,
+  [943 /* PULSECHAIN_TESTNET */]: DEFAULT,
 };
 
 // evm/constants/v3.ts
@@ -162,10 +250,13 @@ var V2_FEE_PATH_PLACEHOLDER = 8388608;
 var MSG_SENDER = "0x0000000000000000000000000000000000000001";
 var ADDRESS_THIS = "0x0000000000000000000000000000000000000002";
 var MIXED_ROUTE_QUOTER_ADDRESSES = {
-  [84532 /* BASE_SEPOLIA */]: ALGEBRA_QUOTER_V2[84532 /* BASE_SEPOLIA */]
+  // [84532 /* BASE_SEPOLIA */]: ALGEBRA_QUOTER_V2[84532 /* BASE_SEPOLIA */],
+  [943 /* PULSECHAIN_TESTNET */]:
+    ALGEBRA_QUOTER_V2[943 /* PULSECHAIN_TESTNET */],
 };
 var V3_QUOTER_ADDRESSES = {
-  [84532 /* BASE_SEPOLIA */]: ALGEBRA_QUOTER_V2[84532 /* BASE_SEPOLIA */]
+  [943 /* PULSECHAIN_TESTNET */]:
+    ALGEBRA_QUOTER_V2[943 /* PULSECHAIN_TESTNET */],
 };
 
 // evm/constants/stableSwap/pools.ts
@@ -177,7 +268,7 @@ var isStableSwapSupported = (chainId) => {
 };
 var STABLE_SUPPORTED_CHAIN_IDS = [84532 /* BASE_SEPOLIA */];
 var STABLE_POOL_MAP = {
-  [84532 /* BASE_SEPOLIA */]: []
+  [84532 /* BASE_SEPOLIA */]: [],
 };
 
 // evm/constants/stableSwap/index.ts
@@ -197,11 +288,14 @@ __export(stableSwap_exports, {
   getSwapInput: () => getSwapInput,
   getSwapInputWithtouFee: () => getSwapInputWithtouFee,
   getSwapOutput: () => getSwapOutput,
-  getSwapOutputWithoutFee: () => getSwapOutputWithoutFee
+  getSwapOutputWithoutFee: () => getSwapOutputWithoutFee,
 });
 function getD({ amplifier, balances }) {
   const numOfCoins = balances.length;
-  invariant5(numOfCoins > 1, "To get constant D, pool should have at least two coins.");
+  invariant5(
+    numOfCoins > 1,
+    "To get constant D, pool should have at least two coins."
+  );
   const sum2 = balances.reduce((s, cur) => s + BigInt(cur), ZERO);
   if (sum2 === ZERO) {
     return ZERO;
@@ -214,10 +308,10 @@ function getD({ amplifier, balances }) {
   for (let i = 0; i < 255; i += 1) {
     let dp = d;
     for (const b of balances) {
-      dp = dp * d / (BigInt(b) * n + BigInt(1));
+      dp = (dp * d) / (BigInt(b) * n + BigInt(1));
     }
     dPrev = d;
-    d = (ann * sum2 + dp * n) * d / ((ann - ONE) * d + (n + ONE) * dp);
+    d = ((ann * sum2 + dp * n) * d) / ((ann - ONE) * d + (n + ONE) * dp);
     if (d > dPrev && d - dPrev <= precision) {
       break;
     }
@@ -230,7 +324,10 @@ function getD({ amplifier, balances }) {
 function getY({ amplifier, balances, i, j, x }) {
   const numOfCoins = balances.length;
   invariant5(numOfCoins > 1, "To get y, pool should have at least two coins.");
-  invariant5(i !== j && i >= 0 && j >= 0 && i < numOfCoins && j < numOfCoins, `Invalid i: ${i} and j: ${j}`);
+  invariant5(
+    i !== j && i >= 0 && j >= 0 && i < numOfCoins && j < numOfCoins,
+    `Invalid i: ${i} and j: ${j}`
+  );
   const n = BigInt(numOfCoins);
   const d = getD({ amplifier, balances });
   let sum2 = ZERO;
@@ -246,9 +343,9 @@ function getY({ amplifier, balances, i, j, x }) {
     }
     invariant5(balanceAfterDeposit > ZERO, "Insufficient liquidity");
     sum2 += balanceAfterDeposit;
-    c = c * d / (balanceAfterDeposit * n);
+    c = (c * d) / (balanceAfterDeposit * n);
   }
-  c = c * d / (ann * n);
+  c = (c * d) / (ann * n);
   const b = sum2 + d / ann;
   const precision = ONE;
   let yPrev = ZERO;
@@ -267,30 +364,35 @@ function getY({ amplifier, balances, i, j, x }) {
 }
 var PRECISION = BigInt(10) ** BigInt(18);
 var getRawAmount = (amount) => {
-  return amount.quotient * PRECISION / BigInt(10) ** BigInt(amount.currency.decimals);
+  return (
+    (amount.quotient * PRECISION) /
+    BigInt(10) ** BigInt(amount.currency.decimals)
+  );
 };
 var parseAmount = (currency, rawAmount) => {
-  return CurrencyAmount.fromRawAmount(currency, rawAmount * BigInt(10) ** BigInt(currency.decimals) / PRECISION);
+  return CurrencyAmount.fromRawAmount(
+    currency,
+    (rawAmount * BigInt(10) ** BigInt(currency.decimals)) / PRECISION
+  );
 };
 
 // evm/stableSwap/getLPOutput.ts
-function getLPOutput({
-  amplifier,
-  balances,
-  totalSupply,
-  amounts,
-  fee
-}) {
+function getLPOutput({ amplifier, balances, totalSupply, amounts, fee }) {
   const lpToken = totalSupply.currency;
   const lpTotalSupply = totalSupply.quotient;
-  if (lpTotalSupply === ZERO || !balances.length || balances.every((b) => b.quotient === ZERO)) {
+  if (
+    lpTotalSupply === ZERO ||
+    !balances.length ||
+    balances.every((b) => b.quotient === ZERO)
+  ) {
     const d = getD({ amplifier, balances: amounts.map(getRawAmount) });
     return CurrencyAmount.fromRawAmount(lpToken, d);
   }
   const currentBalances = [];
   const newBalances = [];
   for (const [i, balance] of balances.entries()) {
-    const amount = amounts[i] || CurrencyAmount.fromRawAmount(balance.currency, 0);
+    const amount =
+      amounts[i] || CurrencyAmount.fromRawAmount(balance.currency, 0);
     invariant5(
       amount.currency.wrapped.equals(balance.currency.wrapped),
       "User input currency should be the same as pool balance currency."
@@ -311,7 +413,7 @@ function getLPOutput({
   const eachTokenFee = fee.multiply(n).divide(4 * (n - 1));
   let d2 = d1;
   for (const [i, b] of currentBalances.entries()) {
-    const idealBalance = d1 * b / d0;
+    const idealBalance = (d1 * b) / d0;
     let diff = ZERO;
     if (idealBalance > newBalances[i]) {
       diff = idealBalance - newBalances[i];
@@ -322,7 +424,7 @@ function getLPOutput({
     newBalances[i] = newBalances[i] - feeAmount;
   }
   d2 = getD({ amplifier, balances: newBalances });
-  const expectedMintLP = lpTotalSupply * (d2 - d0) / d0;
+  const expectedMintLP = (lpTotalSupply * (d2 - d0)) / d0;
   return CurrencyAmount.fromRawAmount(totalSupply.currency, expectedMintLP);
 }
 
@@ -335,9 +437,10 @@ function getSwapOutput({
   balances: balanceAmounts,
   outputCurrency,
   amount,
-  fee
+  fee,
 }) {
-  const validateAmountOut = (a) => invariant5(!a.lessThan(ZERO), "Insufficient liquidity to perform the swap");
+  const validateAmountOut = (a) =>
+    invariant5(!a.lessThan(ZERO), "Insufficient liquidity to perform the swap");
   let i = null;
   let j = null;
   const balances = [];
@@ -357,7 +460,9 @@ function getSwapOutput({
     "Input currency or output currency does not match currencies of token balances."
   );
   if (amount.quotient < ZERO) {
-    const x = ONE_HUNDRED_PERCENT.subtract(fee).invert().multiply(getRawAmount(amount)).quotient;
+    const x = ONE_HUNDRED_PERCENT.subtract(fee)
+      .invert()
+      .multiply(getRawAmount(amount)).quotient;
     const y2 = getY({ amplifier, balances, i, j, x });
     const dy2 = y2 - balances[j];
     const amountOut2 = parseAmount(outputCurrency, dy2);
@@ -377,7 +482,7 @@ function getSwapOutputWithoutFee(params) {
 function getSwapInput({ amount, ...rest }) {
   return getSwapOutput({
     ...rest,
-    amount: CurrencyAmount.fromRawAmount(amount.currency, -amount.quotient)
+    amount: CurrencyAmount.fromRawAmount(amount.currency, -amount.quotient),
   });
 }
 function getSwapInputWithtouFee(params) {
@@ -400,7 +505,8 @@ __export(smartRouter_exports, {
   createPoolProvider: () => createPoolProvider,
   createQuoteProvider: () => createQuoteProvider,
   createStaticPoolProvider: () => createStaticPoolProvider,
-  createV2PoolsProviderByCommonTokenPrices: () => createV2PoolsProviderByCommonTokenPrices,
+  createV2PoolsProviderByCommonTokenPrices: () =>
+    createV2PoolsProviderByCommonTokenPrices,
   getAllV3PoolsFromSubgraph: () => getAllV3PoolsFromSubgraph,
   getBestTrade: () => getBestTrade,
   getCandidatePools: () => getCandidatePools,
@@ -418,12 +524,15 @@ __export(smartRouter_exports, {
   getV2CandidatePools: () => getV2CandidatePools,
   getV2PoolSubgraph: () => getV2PoolSubgraph,
   getV2PoolsOnChain: () => getV2PoolsOnChain,
-  getV2PoolsWithTvlByCommonTokenPrices: () => getV2PoolsWithTvlByCommonTokenPrices,
+  getV2PoolsWithTvlByCommonTokenPrices: () =>
+    getV2PoolsWithTvlByCommonTokenPrices,
   getV3CandidatePools: () => getV3CandidatePools,
   getV3PoolSubgraph: () => getV3PoolSubgraph,
   getV3PoolsWithTvlFromOnChain: () => getV3PoolsWithTvlFromOnChain,
-  getV3PoolsWithTvlFromOnChainFallback: () => getV3PoolsWithTvlFromOnChainFallback,
-  getV3PoolsWithTvlFromOnChainStaticFallback: () => getV3PoolsWithTvlFromOnChainStaticFallback,
+  getV3PoolsWithTvlFromOnChainFallback: () =>
+    getV3PoolsWithTvlFromOnChainFallback,
+  getV3PoolsWithTvlFromOnChainStaticFallback: () =>
+    getV3PoolsWithTvlFromOnChainStaticFallback,
   getV3PoolsWithoutTicksOnChain: () => getV3PoolsWithoutTicksOnChain,
   involvesCurrency: () => involvesCurrency,
   isStablePool: () => isStablePool,
@@ -442,7 +551,7 @@ __export(smartRouter_exports, {
   v3PoolSubgraphSelection: () => v3PoolTvlSelector,
   v3PoolTvlSelector: () => v3PoolTvlSelector,
   v3PoolsOnChainProviderFactory: () => v3PoolsOnChainProviderFactory,
-  v3SubgraphClient: () => v3SubgraphClient
+  v3SubgraphClient: () => v3SubgraphClient,
 });
 function getAmountDistribution(amount, distributionPercent) {
   const percents = [];
@@ -456,8 +565,8 @@ function getAmountDistribution(amount, distributionPercent) {
 function wrappedCurrency(currency, chainId) {
   if (currency?.isNative) {
     switch (chainId) {
-      case 84532 /* BASE_SEPOLIA */:
-        return baseSepoliaTokens.weth;
+      // case 84532 /* BASE_SEPOLIA */:
+      //   return baseSepoliaTokens.weth;
       case 943 /* PULSECHAIN_TESTNET */:
         return pulsechainTestnetTokens.wpls;
     }
@@ -467,32 +576,38 @@ function wrappedCurrency(currency, chainId) {
 
 // evm/v3-router/types/pool.ts
 var PoolType = /* @__PURE__ */ ((PoolType2) => {
-  PoolType2[PoolType2["V2"] = 0] = "V2";
-  PoolType2[PoolType2["V3"] = 1] = "V3";
-  PoolType2[PoolType2["STABLE"] = 2] = "STABLE";
+  PoolType2[(PoolType2["V2"] = 0)] = "V2";
+  PoolType2[(PoolType2["V3"] = 1)] = "V3";
+  PoolType2[(PoolType2["STABLE"] = 2)] = "STABLE";
   return PoolType2;
 })(PoolType || {});
 
 // evm/v3-router/types/route.ts
 var RouteType = /* @__PURE__ */ ((RouteType2) => {
-  RouteType2[RouteType2["V2"] = 0] = "V2";
-  RouteType2[RouteType2["V3"] = 1] = "V3";
-  RouteType2[RouteType2["STABLE"] = 2] = "STABLE";
-  RouteType2[RouteType2["MIXED"] = 3] = "MIXED";
-  RouteType2[RouteType2["MM"] = 4] = "MM";
+  RouteType2[(RouteType2["V2"] = 0)] = "V2";
+  RouteType2[(RouteType2["V3"] = 1)] = "V3";
+  RouteType2[(RouteType2["STABLE"] = 2)] = "STABLE";
+  RouteType2[(RouteType2["MIXED"] = 3)] = "MIXED";
+  RouteType2[(RouteType2["MM"] = 4)] = "MM";
   return RouteType2;
 })(RouteType || {});
 
 // evm/v3-router/utils/pool.ts
 function computePairAddress(token0, token1, isStable) {
-  const [_token0, _token1] = token0.sortsBefore(token1) ? [token0, token1] : [token1, token0];
+  const [_token0, _token1] = token0.sortsBefore(token1)
+    ? [token0, token1]
+    : [token1, token0];
   const salt = keccak256(
-    encodePacked(["address", "address", "bool"], [_token0.address, _token1.address, isStable])
+    encodePacked(
+      ["address", "address", "bool"],
+      [_token0.address, _token1.address, isStable]
+    )
   );
   return getCreate2Address({
     from: "0xf532839E3B36Bac7281B4986e197127166eFD6De",
     salt,
-    bytecodeHash: "0x0d0128a81f322b1beff50a2fe5e23a194fffc4f7c81736e27af97cded386e788"
+    bytecodeHash:
+      "0x0d0128a81f322b1beff50a2fe5e23a194fffc4f7c81736e27af97cded386e788",
   });
 }
 function isV2Pool(pool) {
@@ -520,7 +635,9 @@ function getOutputCurrency(pool, currencyIn) {
   const tokenIn = currencyIn.wrapped;
   if (isV2Pool(pool) || isStablePool(pool)) {
     const { reserve0, reserve1 } = pool;
-    return reserve0.currency.equals(tokenIn) ? reserve1.currency : reserve0.currency;
+    return reserve0.currency.equals(tokenIn)
+      ? reserve1.currency
+      : reserve0.currency;
   }
   if (isV3Pool(pool)) {
     const { token0, token1 } = pool;
@@ -530,15 +647,24 @@ function getOutputCurrency(pool, currencyIn) {
 }
 var computeV3PoolAddress = memoize(
   computePoolAddress,
-  ({ poolDeployer, tokenA, tokenB, initCodeHashManualOverride }) => `${tokenA.chainId}_${poolDeployer}_${tokenA.address}_${initCodeHashManualOverride}_${tokenB.address}`
+  ({ poolDeployer, tokenA, tokenB, initCodeHashManualOverride }) =>
+    `${tokenA.chainId}_${poolDeployer}_${tokenA.address}_${initCodeHashManualOverride}_${tokenB.address}`
 );
 var computeV3CustomPoolAddress = memoize(
   computeCustomPoolAddress,
-  ({ mainPoolDeployer, tokenA, tokenB, customPoolDeployer, initCodeHashManualOverride }) => `${tokenA.chainId}_${mainPoolDeployer}_${customPoolDeployer}_${tokenA.address}_${initCodeHashManualOverride}_${tokenB.address}`
+  ({
+    mainPoolDeployer,
+    tokenA,
+    tokenB,
+    customPoolDeployer,
+    initCodeHashManualOverride,
+  }) =>
+    `${tokenA.chainId}_${mainPoolDeployer}_${customPoolDeployer}_${tokenA.address}_${initCodeHashManualOverride}_${tokenB.address}`
 );
 var computeV2PoolAddress = memoize(
   computePairAddress,
-  (tokenA, tokenB, isStable) => `${tokenA.chainId}_${tokenA.address}_${tokenB.address}_${isStable}`
+  (tokenA, tokenB, isStable) =>
+    `${tokenA.chainId}_${tokenA.address}_${tokenB.address}_${isStable}`
 );
 var getPoolAddress = function getAddress(pool) {
   if (isV3Pool(pool)) {
@@ -546,22 +672,42 @@ var getPoolAddress = function getAddress(pool) {
   }
   if (isV2Pool(pool)) {
     const { reserve0, reserve1 } = pool;
-    return computeV2PoolAddress(reserve0.currency.wrapped, reserve1.currency.wrapped, false);
+    return computeV2PoolAddress(
+      reserve0.currency.wrapped,
+      reserve1.currency.wrapped,
+      false
+    );
   }
   if (isStablePool(pool)) {
     const { reserve0, reserve1 } = pool;
-    return computeV2PoolAddress(reserve0.currency.wrapped, reserve1.currency.wrapped, true);
+    return computeV2PoolAddress(
+      reserve0.currency.wrapped,
+      reserve1.currency.wrapped,
+      true
+    );
   }
   return "";
 };
 function getTokenPrice(pool, base, quote) {
   if (isV3Pool(pool)) {
     const { token0, token1, fee, liquidity, sqrtRatioX96, tick } = pool;
-    const v3Pool = new Pool(token0.wrapped, token1.wrapped, fee, sqrtRatioX96, liquidity, tick);
+    const v3Pool = new Pool(
+      token0.wrapped,
+      token1.wrapped,
+      fee,
+      sqrtRatioX96,
+      liquidity,
+      tick
+    );
     return v3Pool.priceOf(base.wrapped);
   }
   if (isV2Pool(pool) || isStablePool(pool)) {
-    Pair.getAddress = computePairAddress.bind(Pair, pool.reserve0.currency.wrapped, pool.reserve1.currency.wrapped, isStablePool(pool));
+    Pair.getAddress = computePairAddress.bind(
+      Pair,
+      pool.reserve0.currency.wrapped,
+      pool.reserve1.currency.wrapped,
+      isStablePool(pool)
+    );
     const pair = new Pair(pool.reserve0.wrapped, pool.reserve1.wrapped);
     return pair.priceOf(base.wrapped);
   }
@@ -574,23 +720,39 @@ function encodeMixedRouteToPath(route, exactOutput, isV3Only) {
   const { path, types } = route.pools.reduce(
     ({ inputToken, path: path2, types: types2 }, pool, index) => {
       const outputToken = getOutputCurrency(pool, inputToken).wrapped;
-      const version = isV3Pool(pool) ? pool.deployer : isStablePool(pool) ? 2 : isV2Pool(pool) ? 1 : -1;
+      const version = isV3Pool(pool)
+        ? pool.deployer
+        : isStablePool(pool)
+        ? 2
+        : isV2Pool(pool)
+        ? 1
+        : -1;
       if (index === 0) {
         return {
           inputToken: outputToken,
-          types: isV3Only ? ["address", "address", "address"] : ["address", "uint24", "address"],
-          path: isV3Only ? [inputToken.address, pool.deployer, outputToken.address] : [inputToken.address, version, outputToken.address]
+          types: isV3Only
+            ? ["address", "address", "address"]
+            : ["address", "uint24", "address"],
+          path: isV3Only
+            ? [inputToken.address, pool.deployer, outputToken.address]
+            : [inputToken.address, version, outputToken.address],
         };
       }
       return {
         inputToken: outputToken,
-        types: isV3Only ? [...types2, "address", "address"] : [...types2, "uint24", "address"],
-        path: isV3Only ? [...path2, pool.deployer, outputToken.address] : [...path2, version, outputToken.address]
+        types: isV3Only
+          ? [...types2, "address", "address"]
+          : [...types2, "uint24", "address"],
+        path: isV3Only
+          ? [...path2, pool.deployer, outputToken.address]
+          : [...path2, version, outputToken.address],
       };
     },
     { inputToken: firstInputToken, path: [], types: [] }
   );
-  return exactOutput ? encodePacked(types.reverse(), path.reverse()) : encodePacked(types, path);
+  return exactOutput
+    ? encodePacked(types.reverse(), path.reverse())
+    : encodePacked(types, path);
 }
 function getExecutionPrice(trade) {
   if (!trade) {
@@ -600,14 +762,21 @@ function getExecutionPrice(trade) {
   if (inputAmount.quotient === ZERO$1 || outputAmount.quotient === ZERO$1) {
     return null;
   }
-  return new Price(inputAmount.currency, outputAmount.currency, inputAmount.quotient, outputAmount.quotient);
+  return new Price(
+    inputAmount.currency,
+    outputAmount.currency,
+    inputAmount.quotient,
+    outputAmount.quotient
+  );
 }
 
 // evm/v3-router/utils/getNativeWrappedToken.ts
 function getNativeWrappedToken(chainId) {
   switch (chainId) {
-    case 84532 /* BASE_SEPOLIA */:
-      return baseSepoliaTokens.weth;
+    // case 84532 /* BASE_SEPOLIA */:
+    //   return baseSepoliaTokens.weth;
+    case 943 /* PULSECHAIN_TESTNET */:
+      return pulsechainTestnetTokens.wpls;
     default:
       return null;
   }
@@ -632,7 +801,7 @@ var SCOPE_PREFIX = "smart-router";
 var SCOPE = {
   metric: "metric",
   log: "log",
-  error: "error"
+  error: "error",
 };
 var log_ = debug(SCOPE_PREFIX);
 var metric = log_.extend(SCOPE.metric);
@@ -644,44 +813,93 @@ var logger = {
   enable: (namespace) => {
     let namespaces = namespace;
     if (namespace.includes(",")) {
-      namespaces = namespace.split(",").map((ns) => `${SCOPE_PREFIX}:${ns}`).join(",");
+      namespaces = namespace
+        .split(",")
+        .map((ns) => `${SCOPE_PREFIX}:${ns}`)
+        .join(",");
     } else {
       namespaces = `${SCOPE_PREFIX}:${namespace}`;
     }
     debug.enable(namespaces);
-  }
+  },
 };
 function maximumAmountIn(trade, slippage, amountIn = trade.inputAmount) {
-  const slippageBN = new Percent(BigInt(slippage.numerator.toString()), BigInt(slippage.denominator.toString()));
+  const slippageBN = new Percent(
+    BigInt(slippage.numerator.toString()),
+    BigInt(slippage.denominator.toString())
+  );
   if (trade.tradeType === TradeType.EXACT_INPUT) {
-    return CurrencyAmount$1.fromRawAmount(amountIn.currency, amountIn.quotient.toString());
+    return CurrencyAmount$1.fromRawAmount(
+      amountIn.currency,
+      amountIn.quotient.toString()
+    );
   }
-  const slippageAdjustedAmountIn = new Fraction(ONE).add(slippageBN).multiply(amountIn.quotient.toString()).quotient;
-  return CurrencyAmount$1.fromRawAmount(amountIn.currency, slippageAdjustedAmountIn.toString());
+  const slippageAdjustedAmountIn = new Fraction(ONE)
+    .add(slippageBN)
+    .multiply(amountIn.quotient.toString()).quotient;
+  return CurrencyAmount$1.fromRawAmount(
+    amountIn.currency,
+    slippageAdjustedAmountIn.toString()
+  );
 }
 function maximumAmountInBN(trade, slippage, amountIn = trade.inputAmount) {
-  const slippageBN = new Percent(BigInt(slippage.numerator.toString()), BigInt(slippage.denominator.toString()));
+  const slippageBN = new Percent(
+    BigInt(slippage.numerator.toString()),
+    BigInt(slippage.denominator.toString())
+  );
   if (trade.tradeType === TradeType.EXACT_INPUT) {
-    return CurrencyAmount.fromRawAmount(amountIn.currency, amountIn.quotient.toString());
+    return CurrencyAmount.fromRawAmount(
+      amountIn.currency,
+      amountIn.quotient.toString()
+    );
   }
-  const slippageAdjustedAmountIn = new Fraction(ONE).add(slippageBN).multiply(amountIn.quotient.toString()).quotient;
-  return CurrencyAmount.fromRawAmount(amountIn.currency, slippageAdjustedAmountIn);
+  const slippageAdjustedAmountIn = new Fraction(ONE)
+    .add(slippageBN)
+    .multiply(amountIn.quotient.toString()).quotient;
+  return CurrencyAmount.fromRawAmount(
+    amountIn.currency,
+    slippageAdjustedAmountIn
+  );
 }
 function minimumAmountOut(trade, slippage, amountOut = trade.outputAmount) {
-  const slippageBN = new Percent(BigInt(slippage.numerator.toString()), BigInt(slippage.denominator.toString()));
+  const slippageBN = new Percent(
+    BigInt(slippage.numerator.toString()),
+    BigInt(slippage.denominator.toString())
+  );
   if (trade.tradeType === TradeType.EXACT_OUTPUT) {
-    return CurrencyAmount$1.fromRawAmount(amountOut.currency, amountOut.quotient.toString());
+    return CurrencyAmount$1.fromRawAmount(
+      amountOut.currency,
+      amountOut.quotient.toString()
+    );
   }
-  const slippageAdjustedAmountOut = new Fraction(ONE).add(slippageBN).invert().multiply(amountOut.quotient.toString()).quotient;
-  return CurrencyAmount$1.fromRawAmount(amountOut.currency, slippageAdjustedAmountOut.toString());
+  const slippageAdjustedAmountOut = new Fraction(ONE)
+    .add(slippageBN)
+    .invert()
+    .multiply(amountOut.quotient.toString()).quotient;
+  return CurrencyAmount$1.fromRawAmount(
+    amountOut.currency,
+    slippageAdjustedAmountOut.toString()
+  );
 }
 function minimumAmountOutBN(trade, slippage, amountOut = trade.outputAmount) {
-  const slippageBN = new Percent(BigInt(slippage.numerator.toString()), BigInt(slippage.denominator.toString()));
+  const slippageBN = new Percent(
+    BigInt(slippage.numerator.toString()),
+    BigInt(slippage.denominator.toString())
+  );
   if (trade.tradeType === TradeType.EXACT_OUTPUT) {
-    return CurrencyAmount.fromRawAmount(amountOut.currency, amountOut.quotient.toString());
+    return CurrencyAmount.fromRawAmount(
+      amountOut.currency,
+      amountOut.quotient.toString()
+    );
   }
-  const slippageAdjustedAmountOut = new Fraction(ONE).add(slippageBN).invert().multiply(amountOut.quotient.toString()).quotient;
-  return CurrencyAmount.fromRawAmount(amountOut.currency, slippageAdjustedAmountOut);
+  const slippageAdjustedAmountOut = new Fraction(ONE)
+    .add(slippageBN)
+    .invert()
+    .multiply(amountOut.quotient.toString()).quotient;
+  return CurrencyAmount.fromRawAmount(
+    amountOut.currency,
+    slippageAdjustedAmountOut
+  );
 }
 
 // evm/v3-router/utils/route.ts
@@ -693,7 +911,10 @@ function buildBaseRoute(pools, currencyIn, currencyOut) {
     if (currentRouteType === null) {
       return getRouteTypeFromPool(pool);
     }
-    if (currentRouteType === 3 /* MIXED */ || currentRouteType !== getRouteTypeFromPool(pool)) {
+    if (
+      currentRouteType === 3 /* MIXED */ ||
+      currentRouteType !== getRouteTypeFromPool(pool)
+    ) {
       return 3 /* MIXED */;
     }
     return currentRouteType;
@@ -711,7 +932,7 @@ function buildBaseRoute(pools, currencyIn, currencyOut) {
     pools,
     type: routeType,
     input: currencyIn,
-    output: currencyOut
+    output: currencyOut,
   };
 }
 function getRouteTypeFromPool(pool) {
@@ -745,15 +966,33 @@ function getMidPrice({ path, pools }) {
   return price;
 }
 function getPriceImpact(trade) {
-  let spotOutputAmount = CurrencyAmount$1.fromRawAmount(trade.outputAmount.currency.wrapped, 0);
+  let spotOutputAmount = CurrencyAmount$1.fromRawAmount(
+    trade.outputAmount.currency.wrapped,
+    0
+  );
   for (const route of trade.routes) {
     const { inputAmount } = route;
     const midPrice = getMidPrice(route);
-    const midPriceAmountBN = midPrice.quote(CurrencyAmount$2.fromRawAmount(inputAmount.wrapped.currency, inputAmount.quotient.toString()));
-    spotOutputAmount = spotOutputAmount.add(CurrencyAmount$1.fromRawAmount(midPriceAmountBN.currency.wrapped, midPriceAmountBN.quotient.toString()));
+    const midPriceAmountBN = midPrice.quote(
+      CurrencyAmount$2.fromRawAmount(
+        inputAmount.wrapped.currency,
+        inputAmount.quotient.toString()
+      )
+    );
+    spotOutputAmount = spotOutputAmount.add(
+      CurrencyAmount$1.fromRawAmount(
+        midPriceAmountBN.currency.wrapped,
+        midPriceAmountBN.quotient.toString()
+      )
+    );
   }
-  const priceImpact = spotOutputAmount.subtract(trade.outputAmount.wrapped).divide(spotOutputAmount);
-  return new Percent$1(priceImpact.numerator.toString(), priceImpact.denominator.toString());
+  const priceImpact = spotOutputAmount
+    .subtract(trade.outputAmount.wrapped)
+    .divide(spotOutputAmount);
+  return new Percent$1(
+    priceImpact.numerator.toString(),
+    priceImpact.denominator.toString()
+  );
 }
 
 // evm/v3-router/utils/transformer.ts
@@ -768,20 +1007,20 @@ __export(transformer_exports, {
   serializeCurrencyAmount: () => serializeCurrencyAmount,
   serializePool: () => serializePool,
   serializeRoute: () => serializeRoute,
-  serializeTrade: () => serializeTrade
+  serializeTrade: () => serializeTrade,
 });
 var ONE_HUNDRED = BigInt(100);
 function serializeCurrency(currency) {
   return {
     address: currency.isNative ? ADDRESS_ZERO$1 : currency.wrapped.address,
     decimals: currency.decimals,
-    symbol: currency.symbol
+    symbol: currency.symbol,
   };
 }
 function serializeCurrencyAmount(amount) {
   return {
     currency: serializeCurrency(amount.currency),
-    value: amount.quotient.toString()
+    value: amount.quotient.toString(),
   };
 }
 function serializePool(pool) {
@@ -789,7 +1028,7 @@ function serializePool(pool) {
     return {
       ...pool,
       reserve0: serializeCurrencyAmount(pool.reserve0),
-      reserve1: serializeCurrencyAmount(pool.reserve1)
+      reserve1: serializeCurrencyAmount(pool.reserve1),
     };
   }
   if (isV3Pool(pool)) {
@@ -800,7 +1039,7 @@ function serializePool(pool) {
       liquidity: pool.liquidity.toString(),
       sqrtRatioX96: pool.sqrtRatioX96.toString(),
       token0ProtocolFee: pool.token0ProtocolFee.toFixed(0),
-      token1ProtocolFee: pool.token1ProtocolFee.toFixed(0)
+      token1ProtocolFee: pool.token1ProtocolFee.toFixed(0),
     };
   }
   throw new Error("Cannot serialize unsupoorted pool");
@@ -810,18 +1049,43 @@ function serializeRoute(route) {
     ...route,
     pools: route.pools.map(serializePool),
     path: route.path.map(serializeCurrency),
-    inputAmount: serializeCurrencyAmount(CurrencyAmount.fromRawAmount(route.inputAmount.currency, route.inputAmount.quotient.toString())),
-    outputAmount: serializeCurrencyAmount(CurrencyAmount.fromRawAmount(route.outputAmount.currency, route.outputAmount.quotient.toString()))
+    inputAmount: serializeCurrencyAmount(
+      CurrencyAmount.fromRawAmount(
+        route.inputAmount.currency,
+        route.inputAmount.quotient.toString()
+      )
+    ),
+    outputAmount: serializeCurrencyAmount(
+      CurrencyAmount.fromRawAmount(
+        route.outputAmount.currency,
+        route.outputAmount.quotient.toString()
+      )
+    ),
   };
 }
 function serializeTrade(trade) {
   return {
     ...trade,
-    inputAmount: serializeCurrencyAmount(CurrencyAmount.fromRawAmount(trade.inputAmount.currency, trade.inputAmount.quotient.toString())),
-    outputAmount: serializeCurrencyAmount(CurrencyAmount.fromRawAmount(trade.outputAmount.currency, trade.outputAmount.quotient.toString())),
+    inputAmount: serializeCurrencyAmount(
+      CurrencyAmount.fromRawAmount(
+        trade.inputAmount.currency,
+        trade.inputAmount.quotient.toString()
+      )
+    ),
+    outputAmount: serializeCurrencyAmount(
+      CurrencyAmount.fromRawAmount(
+        trade.outputAmount.currency,
+        trade.outputAmount.quotient.toString()
+      )
+    ),
     routes: trade.routes.map(serializeRoute),
     gasEstimate: trade.gasEstimate.toString(),
-    gasEstimateInUSD: serializeCurrencyAmount(CurrencyAmount.fromRawAmount(trade.gasEstimateInUSD.currency, trade.gasEstimateInUSD.quotient.toString()))
+    gasEstimateInUSD: serializeCurrencyAmount(
+      CurrencyAmount.fromRawAmount(
+        trade.gasEstimateInUSD.currency,
+        trade.gasEstimateInUSD.quotient.toString()
+      )
+    ),
   };
 }
 function parseCurrency(chainId, currency) {
@@ -832,14 +1096,17 @@ function parseCurrency(chainId, currency) {
   return new ERC20Token(chainId, address, decimals, symbol);
 }
 function parseCurrencyAmount(chainId, amount) {
-  return CurrencyAmount.fromRawAmount(parseCurrency(chainId, amount.currency), amount.value);
+  return CurrencyAmount.fromRawAmount(
+    parseCurrency(chainId, amount.currency),
+    amount.value
+  );
 }
 function parsePool(chainId, pool) {
   if (pool.type === 0 /* V2 */ || pool.type === 2 /* STABLE */) {
     return {
       ...pool,
       reserve0: parseCurrencyAmount(chainId, pool.reserve0),
-      reserve1: parseCurrencyAmount(chainId, pool.reserve1)
+      reserve1: parseCurrencyAmount(chainId, pool.reserve1),
     };
   }
   if (pool.type === 1 /* V3 */) {
@@ -850,7 +1117,7 @@ function parsePool(chainId, pool) {
       liquidity: BigInt(pool.liquidity),
       sqrtRatioX96: BigInt(pool.sqrtRatioX96),
       token0ProtocolFee: new Percent(pool.token0ProtocolFee, ONE_HUNDRED),
-      token1ProtocolFee: new Percent(pool.token1ProtocolFee, ONE_HUNDRED)
+      token1ProtocolFee: new Percent(pool.token1ProtocolFee, ONE_HUNDRED),
     };
   }
   throw new Error("Cannot parse unsupoorted pool");
@@ -862,21 +1129,39 @@ function parseRoute(chainId, route) {
     ...route,
     pools: route.pools.map((p) => parsePool(chainId, p)),
     path: route.path.map((c) => parseCurrency(chainId, c)),
-    inputAmount: CurrencyAmount$1.fromRawAmount(parsedInput.currency, parsedInput.quotient.toString()),
-    outputAmount: CurrencyAmount$1.fromRawAmount(parsedOutput.currency, parsedOutput.quotient.toString())
+    inputAmount: CurrencyAmount$1.fromRawAmount(
+      parsedInput.currency,
+      parsedInput.quotient.toString()
+    ),
+    outputAmount: CurrencyAmount$1.fromRawAmount(
+      parsedOutput.currency,
+      parsedOutput.quotient.toString()
+    ),
   };
 }
 function parseTrade(chainId, trade) {
   const parsedInput = parseCurrencyAmount(chainId, trade.inputAmount);
   const parsedOutput = parseCurrencyAmount(chainId, trade.outputAmount);
-  const parsedGasEstimateInUSD = parseCurrencyAmount(chainId, trade.gasEstimateInUSD);
+  const parsedGasEstimateInUSD = parseCurrencyAmount(
+    chainId,
+    trade.gasEstimateInUSD
+  );
   return {
     ...trade,
-    inputAmount: CurrencyAmount$1.fromRawAmount(parsedInput.currency, parsedInput.quotient.toString()),
-    outputAmount: CurrencyAmount$1.fromRawAmount(parsedOutput.currency, parsedOutput.quotient.toString()),
+    inputAmount: CurrencyAmount$1.fromRawAmount(
+      parsedInput.currency,
+      parsedInput.quotient.toString()
+    ),
+    outputAmount: CurrencyAmount$1.fromRawAmount(
+      parsedOutput.currency,
+      parsedOutput.quotient.toString()
+    ),
     routes: trade.routes.map((r) => parseRoute(chainId, r)),
     gasEstimate: BigInt(trade.gasEstimate),
-    gasEstimateInUSD: CurrencyAmount$1.fromRawAmount(parsedGasEstimateInUSD.currency, parsedGasEstimateInUSD.quotient.toString())
+    gasEstimateInUSD: CurrencyAmount$1.fromRawAmount(
+      parsedGasEstimateInUSD.currency,
+      parsedGasEstimateInUSD.quotient.toString()
+    ),
   };
 }
 
@@ -885,44 +1170,68 @@ var resolver = (currencyA, currencyB) => {
   if (!currencyA || !currencyB || currencyA.wrapped.equals(currencyB.wrapped)) {
     return `${currencyA?.chainId}_${currencyA?.wrapped?.address}_${currencyB?.wrapped?.address}`;
   }
-  const [token0, token1] = currencyA.wrapped.sortsBefore(currencyB.wrapped) ? [currencyA.wrapped, currencyB.wrapped] : [currencyB.wrapped, currencyA.wrapped];
+  const [token0, token1] = currencyA.wrapped.sortsBefore(currencyB.wrapped)
+    ? [currencyA.wrapped, currencyB.wrapped]
+    : [currencyB.wrapped, currencyA.wrapped];
   return `${token0.chainId}_${token0.address}_${token1.address}`;
 };
 function getAdditionalCheckAgainstBaseTokens(currencyA, currencyB) {
   const chainId = currencyA?.chainId;
   const additionalBases = {
-    ...chainId ? ADDITIONAL_BASES[chainId] ?? {} : {}
+    ...(chainId ? ADDITIONAL_BASES[chainId] ?? {} : {}),
   };
   const uniq = (tokens) => uniqBy(tokens, (t) => t.address);
-  const additionalA = currencyA && chainId ? uniq([...additionalBases[currencyA.wrapped.address] || []]) ?? [] : [];
-  const additionalB = currencyB && chainId ? uniq([...additionalBases[currencyB.wrapped.address] || []]) ?? [] : [];
+  const additionalA =
+    currencyA && chainId
+      ? uniq([...(additionalBases[currencyA.wrapped.address] || [])]) ?? []
+      : [];
+  const additionalB =
+    currencyB && chainId
+      ? uniq([...(additionalBases[currencyB.wrapped.address] || [])]) ?? []
+      : [];
   return [...additionalA, ...additionalB];
 }
 var getCheckAgainstBaseTokens = memoize((currencyA, currencyB) => {
   const chainId = currencyA?.chainId;
-  if (!chainId || !currencyA || !currencyB || !isCurrenciesSameChain(currencyA, currencyB)) {
+  if (
+    !chainId ||
+    !currencyA ||
+    !currencyB ||
+    !isCurrenciesSameChain(currencyA, currencyB)
+  ) {
     return [];
   }
-  const [tokenA, tokenB] = chainId ? [wrappedCurrency(currencyA, chainId), wrappedCurrency(currencyB, chainId)] : [void 0, void 0];
+  const [tokenA, tokenB] = chainId
+    ? [wrappedCurrency(currencyA, chainId), wrappedCurrency(currencyB, chainId)]
+    : [void 0, void 0];
   if (!tokenA || !tokenB) {
     return [];
   }
   const common = BASES_TO_CHECK_TRADES_AGAINST[chainId] ?? [];
-  return [...common, ...getAdditionalCheckAgainstBaseTokens(currencyA, currencyB)];
+  return [
+    ...common,
+    ...getAdditionalCheckAgainstBaseTokens(currencyA, currencyB),
+  ];
 }, resolver);
 var getPairCombinations = memoize((currencyA, currencyB) => {
   const chainId = currencyA?.chainId;
-  if (!chainId || !currencyA || !currencyB || !isCurrenciesSameChain(currencyA, currencyB)) {
+  if (
+    !chainId ||
+    !currencyA ||
+    !currencyB ||
+    !isCurrenciesSameChain(currencyA, currencyB)
+  ) {
     return [];
   }
-  const [tokenA, tokenB] = chainId ? [wrappedCurrency(currencyA, chainId), wrappedCurrency(currencyB, chainId)] : [void 0, void 0];
+  const [tokenA, tokenB] = chainId
+    ? [wrappedCurrency(currencyA, chainId), wrappedCurrency(currencyB, chainId)]
+    : [void 0, void 0];
   if (!tokenA || !tokenB) {
     return [];
   }
   const bases = getCheckAgainstBaseTokens(currencyA, currencyB);
-  const basePairs = flatMap(
-    bases,
-    (base) => bases.map((otherBase) => [base, otherBase])
+  const basePairs = flatMap(bases, (base) =>
+    bases.map((otherBase) => [base, otherBase])
   );
   return [
     // the direct pair
@@ -932,21 +1241,22 @@ var getPairCombinations = memoize((currencyA, currencyB) => {
     // token B against all bases
     ...bases.map((base) => [tokenB, base]),
     // each base against all bases
-    ...basePairs
-  ].filter((tokens) => Boolean(tokens[0] && tokens[1])).filter(([t0, t1]) => !t0.equals(t1)).filter(([tokenA_, tokenB_]) => {
-    if (!chainId)
+    ...basePairs,
+  ]
+    .filter((tokens) => Boolean(tokens[0] && tokens[1]))
+    .filter(([t0, t1]) => !t0.equals(t1))
+    .filter(([tokenA_, tokenB_]) => {
+      if (!chainId) return true;
+      const customBases = CUSTOM_BASES[chainId];
+      const customBasesA = customBases?.[tokenA_.wrapped.address];
+      const customBasesB = customBases?.[tokenB_.wrapped.address];
+      if (!customBasesA && !customBasesB) return true;
+      if (customBasesA && !customBasesA.find((base) => tokenB_.equals(base)))
+        return false;
+      if (customBasesB && !customBasesB.find((base) => tokenA_.equals(base)))
+        return false;
       return true;
-    const customBases = CUSTOM_BASES[chainId];
-    const customBasesA = customBases?.[tokenA_.wrapped.address];
-    const customBasesB = customBases?.[tokenB_.wrapped.address];
-    if (!customBasesA && !customBasesB)
-      return true;
-    if (customBasesA && !customBasesA.find((base) => tokenB_.equals(base)))
-      return false;
-    if (customBasesB && !customBasesB.find((base) => tokenA_.equals(base)))
-      return false;
-    return true;
-  });
+    });
 }, resolver);
 
 // evm/v3-router/functions/computeAllRoutes.ts
@@ -954,11 +1264,19 @@ function computeAllRoutes(input, output, candidatePools, maxHops = 3) {
   logger.metric("Computing routes from", candidatePools.length, "pools");
   const poolsUsed = Array(candidatePools.length).fill(false);
   const routes = [];
-  const computeRoutes = (currencyIn, currencyOut, currentRoute, _previousCurrencyOut) => {
+  const computeRoutes = (
+    currencyIn,
+    currencyOut,
+    currentRoute,
+    _previousCurrencyOut
+  ) => {
     if (currentRoute.length > maxHops) {
       return;
     }
-    if (currentRoute.length > 0 && involvesCurrency(currentRoute[currentRoute.length - 1], currencyOut)) {
+    if (
+      currentRoute.length > 0 &&
+      involvesCurrency(currentRoute[currentRoute.length - 1], currencyOut)
+    ) {
       routes.push(buildBaseRoute([...currentRoute], currencyIn, currencyOut));
       return;
     }
@@ -983,10 +1301,22 @@ function computeAllRoutes(input, output, candidatePools, maxHops = 3) {
     }
   };
   computeRoutes(input, output, []);
-  logger.metric("Computed routes from", candidatePools.length, "pools", routes.length, "routes");
+  logger.metric(
+    "Computed routes from",
+    candidatePools.length,
+    "pools",
+    routes.length,
+    "routes"
+  );
   return routes;
 }
-function getBestRouteCombinationByQuotes(amount, quoteCurrency, routesWithQuote, tradeType, config) {
+function getBestRouteCombinationByQuotes(
+  amount,
+  quoteCurrency,
+  routesWithQuote,
+  tradeType,
+  config
+) {
   const chainId = amount.currency.chainId;
   const percents = [];
   const percentToQuotes = {};
@@ -1018,10 +1348,11 @@ function getBestRouteCombinationByQuotes(amount, quoteCurrency, routesWithQuote,
     logger.log(
       "Optimal route's amounts did not equal exactIn/exactOut total. Adding missing amount to last route in array.",
       {
-        missingAmount: missingAmount.quotient.toString()
+        missingAmount: missingAmount.quotient.toString(),
       }
     );
-    routeAmounts[routeAmounts.length - 1].amount = routeAmounts[routeAmounts.length - 1].amount.add(missingAmount);
+    routeAmounts[routeAmounts.length - 1].amount =
+      routeAmounts[routeAmounts.length - 1].amount.add(missingAmount);
   }
   logger.log(
     {
@@ -1029,42 +1360,94 @@ function getBestRouteCombinationByQuotes(amount, quoteCurrency, routesWithQuote,
       numSplits: routeAmounts.length,
       amount: amount.toExact(),
       quote: swapRoute.quote.toExact(),
-      quoteGasAdjusted: swapRoute.quoteGasAdjusted.toFixed(Math.min(swapRoute.quoteGasAdjusted.currency.decimals, 2)),
+      quoteGasAdjusted: swapRoute.quoteGasAdjusted.toFixed(
+        Math.min(swapRoute.quoteGasAdjusted.currency.decimals, 2)
+      ),
       estimatedGasUSD: swapRoute.estimatedGasUsedUSD.toFixed(
         Math.min(swapRoute.estimatedGasUsedUSD.currency.decimals, 2)
       ),
       estimatedGasToken: swapRoute.estimatedGasUsedQuoteToken.toFixed(
         Math.min(swapRoute.estimatedGasUsedQuoteToken.currency.decimals, 2)
-      )
+      ),
     },
     `Found best swap route. ${routeAmounts.length} split.`
   );
-  const { routes, quote: quoteAmount, estimatedGasUsed, estimatedGasUsedUSD } = swapRoute;
-  const quoteJSBI = CurrencyAmount$1.fromRawAmount(quoteCurrency, quoteAmount.quotient.toString());
-  const amountJSBI = CurrencyAmount$1.fromRawAmount(amount.currency, amount.quotient.toString());
+  const {
+    routes,
+    quote: quoteAmount,
+    estimatedGasUsed,
+    estimatedGasUsedUSD,
+  } = swapRoute;
+  const quoteJSBI = CurrencyAmount$1.fromRawAmount(
+    quoteCurrency,
+    quoteAmount.quotient.toString()
+  );
+  const amountJSBI = CurrencyAmount$1.fromRawAmount(
+    amount.currency,
+    amount.quotient.toString()
+  );
   const isExactIn = tradeType === TradeType.EXACT_INPUT;
   return {
-    routes: routes.map(({ type, amount: routeAmount, quote: routeQuoteAmount, pools, path, percent, feeList, sqrtPriceX96AfterList, amountInList, amountOutList }) => {
-      return {
-        percent,
+    routes: routes.map(
+      ({
         type,
+        amount: routeAmount,
+        quote: routeQuoteAmount,
         pools,
         path,
+        percent,
         feeList,
         sqrtPriceX96AfterList,
         amountInList,
         amountOutList,
-        inputAmount: isExactIn ? CurrencyAmount$1.fromRawAmount(routeAmount.currency, routeAmount.quotient.toString()) : CurrencyAmount$1.fromRawAmount(routeQuoteAmount.currency, routeQuoteAmount.quotient.toString()),
-        outputAmount: isExactIn ? CurrencyAmount$1.fromRawAmount(routeQuoteAmount.currency, routeQuoteAmount.quotient.toString()) : CurrencyAmount$1.fromRawAmount(routeAmount.currency, routeAmount.quotient.toString())
-      };
-    }),
+      }) => {
+        return {
+          percent,
+          type,
+          pools,
+          path,
+          feeList,
+          sqrtPriceX96AfterList,
+          amountInList,
+          amountOutList,
+          inputAmount: isExactIn
+            ? CurrencyAmount$1.fromRawAmount(
+                routeAmount.currency,
+                routeAmount.quotient.toString()
+              )
+            : CurrencyAmount$1.fromRawAmount(
+                routeQuoteAmount.currency,
+                routeQuoteAmount.quotient.toString()
+              ),
+          outputAmount: isExactIn
+            ? CurrencyAmount$1.fromRawAmount(
+                routeQuoteAmount.currency,
+                routeQuoteAmount.quotient.toString()
+              )
+            : CurrencyAmount$1.fromRawAmount(
+                routeAmount.currency,
+                routeAmount.quotient.toString()
+              ),
+        };
+      }
+    ),
     gasEstimate: estimatedGasUsed,
-    gasEstimateInUSD: CurrencyAmount$1.fromRawAmount(estimatedGasUsedUSD.currency, estimatedGasUsedUSD.quotient.toString()),
+    gasEstimateInUSD: CurrencyAmount$1.fromRawAmount(
+      estimatedGasUsedUSD.currency,
+      estimatedGasUsedUSD.quotient.toString()
+    ),
     inputAmount: isExactIn ? amountJSBI : quoteJSBI,
-    outputAmount: isExactIn ? quoteJSBI : amountJSBI
+    outputAmount: isExactIn ? quoteJSBI : amountJSBI,
   };
 }
-function getBestSwapRouteBy(tradeType, percentToQuotes, percents, chainId, by, { maxSplits = 4, minSplits = 0 }) {
+function getBestSwapRouteBy(
+  tradeType,
+  percentToQuotes,
+  percents,
+  chainId,
+  by,
+  { maxSplits = 4, minSplits = 0 }
+) {
   const percentToSortedQuotes = mapValues(percentToQuotes, (routeQuotes) => {
     return routeQuotes.sort((routeQuoteA, routeQuoteB) => {
       if (tradeType === TradeType.EXACT_INPUT) {
@@ -1073,7 +1456,10 @@ function getBestSwapRouteBy(tradeType, percentToQuotes, percents, chainId, by, {
       return by(routeQuoteA).lessThan(by(routeQuoteB)) ? -1 : 1;
     });
   });
-  const quoteCompFn = tradeType === TradeType.EXACT_INPUT ? (a, b) => a.greaterThan(b) : (a, b) => a.lessThan(b);
+  const quoteCompFn =
+    tradeType === TradeType.EXACT_INPUT
+      ? (a, b) => a.greaterThan(b)
+      : (a, b) => a.lessThan(b);
   const sumFn = (currencyAmounts) => {
     let sum2 = currencyAmounts[0];
     for (let i = 1; i < currencyAmounts.length; i++) {
@@ -1093,7 +1479,10 @@ function getBestSwapRouteBy(tradeType, percentToQuotes, percents, chainId, by, {
   if (!percentToSortedQuotes[100] || minSplits > 1) {
     logger.log(
       {
-        percentToSortedQuotes: mapValues(percentToSortedQuotes, (p) => p.length)
+        percentToSortedQuotes: mapValues(
+          percentToSortedQuotes,
+          (p) => p.length
+        ),
       },
       "Did not find a valid route without any splits. Continuing search anyway."
     );
@@ -1103,7 +1492,7 @@ function getBestSwapRouteBy(tradeType, percentToQuotes, percents, chainId, by, {
     for (const routeWithQuote of percentToSortedQuotes[100].slice(0, 5)) {
       bestSwapsPerSplit.push({
         quote: by(routeWithQuote),
-        routes: [routeWithQuote]
+        routes: [routeWithQuote],
       });
     }
   }
@@ -1117,7 +1506,7 @@ function getBestSwapRouteBy(tradeType, percentToQuotes, percents, chainId, by, {
       curRoutes: [percentToSortedQuotes[percent][0]],
       percentIndex: i,
       remainingPercent: 100 - percent,
-      special: false
+      special: false,
     });
     if (!percentToSortedQuotes[percent] || !percentToSortedQuotes[percent][1]) {
       continue;
@@ -1126,7 +1515,7 @@ function getBestSwapRouteBy(tradeType, percentToQuotes, percents, chainId, by, {
       curRoutes: [percentToSortedQuotes[percent][1]],
       percentIndex: i,
       remainingPercent: 100 - percent,
-      special: true
+      special: true,
     });
   }
   let splits = 1;
@@ -1134,21 +1523,27 @@ function getBestSwapRouteBy(tradeType, percentToQuotes, percents, chainId, by, {
     logger.log(
       {
         top5: Array.from(bestSwapsPerSplit.consume()).map(
-          (q) => `${q.quote.toExact()} (${q.routes.map(
-            (r) => `${r.percent}% ${r.amount.toExact()} ${r.pools.map((p) => {
-              if (isV2Pool(p)) {
-                return `V2 ${p.reserve0.currency.symbol}-${p.reserve1.currency.symbol}`;
-              }
-              if (isStablePool(p)) {
-                return `Stable ${p.reserve0.currency.symbol}-${p.reserve1.currency.symbol}`;
-              }
-              if (isV3Pool(p)) {
-                return `V3 fee ${p.fee} ${p.token0.symbol}-${p.token1.symbol}`;
-              }
-            }).join(", ")} ${r.quote.toExact()}`
-          ).join(", ")})`
+          (q) =>
+            `${q.quote.toExact()} (${q.routes
+              .map(
+                (r) =>
+                  `${r.percent}% ${r.amount.toExact()} ${r.pools
+                    .map((p) => {
+                      if (isV2Pool(p)) {
+                        return `V2 ${p.reserve0.currency.symbol}-${p.reserve1.currency.symbol}`;
+                      }
+                      if (isStablePool(p)) {
+                        return `Stable ${p.reserve0.currency.symbol}-${p.reserve1.currency.symbol}`;
+                      }
+                      if (isV3Pool(p)) {
+                        return `V3 fee ${p.fee} ${p.token0.symbol}-${p.token1.symbol}`;
+                      }
+                    })
+                    .join(", ")} ${r.quote.toExact()}`
+              )
+              .join(", ")})`
         ),
-        onQueue: queue.size
+        onQueue: queue.size,
       },
       `Top 3 with ${splits} splits`
     );
@@ -1164,7 +1559,8 @@ function getBestSwapRouteBy(tradeType, percentToQuotes, percents, chainId, by, {
     }
     while (layer > 0) {
       layer--;
-      const { remainingPercent, curRoutes, percentIndex, special } = queue.dequeue();
+      const { remainingPercent, curRoutes, percentIndex, special } =
+        queue.dequeue();
       for (let i = percentIndex; i >= 0; i--) {
         const percentA = percents[i];
         if (percentA > remainingPercent) {
@@ -1174,7 +1570,10 @@ function getBestSwapRouteBy(tradeType, percentToQuotes, percents, chainId, by, {
           continue;
         }
         const candidateRoutesA = percentToSortedQuotes[percentA];
-        const routeWithQuoteA = findFirstRouteNotUsingUsedPools(curRoutes, candidateRoutesA);
+        const routeWithQuoteA = findFirstRouteNotUsingUsedPools(
+          curRoutes,
+          candidateRoutesA
+        );
         if (!routeWithQuoteA) {
           continue;
         }
@@ -1183,11 +1582,17 @@ function getBestSwapRouteBy(tradeType, percentToQuotes, percents, chainId, by, {
         if (remainingPercentNew === 0 && splits >= minSplits) {
           const quotesNew = curRoutesNew.map((r) => by(r));
           const quoteNew = sumFn(quotesNew);
-          const gasCostL1QuoteToken2 = CurrencyAmount.fromRawAmount(quoteNew.currency, 0);
-          const quoteAfterL1Adjust = tradeType === TradeType.EXACT_INPUT ? quoteNew.subtract(gasCostL1QuoteToken2) : quoteNew.add(gasCostL1QuoteToken2);
+          const gasCostL1QuoteToken2 = CurrencyAmount.fromRawAmount(
+            quoteNew.currency,
+            0
+          );
+          const quoteAfterL1Adjust =
+            tradeType === TradeType.EXACT_INPUT
+              ? quoteNew.subtract(gasCostL1QuoteToken2)
+              : quoteNew.add(gasCostL1QuoteToken2);
           bestSwapsPerSplit.push({
             quote: quoteAfterL1Adjust,
-            routes: curRoutesNew
+            routes: curRoutesNew,
           });
           if (!bestQuote || quoteCompFn(quoteAfterL1Adjust, bestQuote)) {
             bestQuote = quoteAfterL1Adjust;
@@ -1198,7 +1603,7 @@ function getBestSwapRouteBy(tradeType, percentToQuotes, percents, chainId, by, {
             curRoutes: curRoutesNew,
             remainingPercent: remainingPercentNew,
             percentIndex: i,
-            special
+            special,
           });
         }
       }
@@ -1208,10 +1613,21 @@ function getBestSwapRouteBy(tradeType, percentToQuotes, percents, chainId, by, {
     logger.log(`Could not find a valid swap`);
     return null;
   }
-  let quoteGasAdjusted = sumFn(bestSwap.map((routeWithValidQuote) => routeWithValidQuote.quoteAdjustedForGas));
-  const estimatedGasUsed = bestSwap.map((routeWithValidQuote) => routeWithValidQuote.gasEstimate).reduce((sum2, routeWithValidQuote) => sum2 + routeWithValidQuote, BigInt(0));
+  let quoteGasAdjusted = sumFn(
+    bestSwap.map(
+      (routeWithValidQuote) => routeWithValidQuote.quoteAdjustedForGas
+    )
+  );
+  const estimatedGasUsed = bestSwap
+    .map((routeWithValidQuote) => routeWithValidQuote.gasEstimate)
+    .reduce(
+      (sum2, routeWithValidQuote) => sum2 + routeWithValidQuote,
+      BigInt(0)
+    );
   if (!usdGasTokensByChain[chainId] || !usdGasTokensByChain[chainId][0]) {
-    throw new Error(`Could not find a USD token for computing gas costs on ${chainId}`);
+    throw new Error(
+      `Could not find a USD token for computing gas costs on ${chainId}`
+    );
   }
   const usdToken = usdGasTokensByChain[chainId][0];
   const usdTokenDecimals = usdToken.decimals;
@@ -1222,24 +1638,32 @@ function getBestSwapRouteBy(tradeType, percentToQuotes, percents, chainId, by, {
       // eslint-disable-next-line @typescript-eslint/no-non-null-asserted-optional-chain
       bestSwap[0]?.quote.currency.wrapped,
       0
-    )
+    ),
   };
   const { gasCostL1USD, gasCostL1QuoteToken } = gasCostsL1ToL2;
   const estimatedGasUsedUSDs = bestSwap.map((routeWithValidQuote) => {
-    const decimalsDiff = usdTokenDecimals - routeWithValidQuote.gasCostInUSD.currency.decimals;
+    const decimalsDiff =
+      usdTokenDecimals - routeWithValidQuote.gasCostInUSD.currency.decimals;
     if (decimalsDiff === 0) {
-      return CurrencyAmount.fromRawAmount(usdToken, routeWithValidQuote.gasCostInUSD.quotient);
+      return CurrencyAmount.fromRawAmount(
+        usdToken,
+        routeWithValidQuote.gasCostInUSD.quotient
+      );
     }
     return CurrencyAmount.fromRawAmount(
       usdToken,
-      routeWithValidQuote.gasCostInUSD.quotient * BigInt(10) ** BigInt(decimalsDiff)
+      routeWithValidQuote.gasCostInUSD.quotient *
+        BigInt(10) ** BigInt(decimalsDiff)
     );
   });
   let estimatedGasUsedUSD = sumFn(estimatedGasUsedUSDs);
   if (!estimatedGasUsedUSD.currency.equals(gasCostL1USD.currency)) {
     const decimalsDiff = usdTokenDecimals - gasCostL1USD.currency.decimals;
     estimatedGasUsedUSD = estimatedGasUsedUSD.add(
-      CurrencyAmount.fromRawAmount(usdToken, gasCostL1USD.quotient * BigInt(10) ** BigInt(decimalsDiff))
+      CurrencyAmount.fromRawAmount(
+        usdToken,
+        gasCostL1USD.quotient * BigInt(10) ** BigInt(decimalsDiff)
+      )
     );
   } else {
     estimatedGasUsedUSD = estimatedGasUsedUSD.add(gasCostL1USD);
@@ -1247,16 +1671,19 @@ function getBestSwapRouteBy(tradeType, percentToQuotes, percents, chainId, by, {
   const estimatedGasUsedQuoteToken = sumFn(
     bestSwap.map((routeWithValidQuote) => routeWithValidQuote.gasCostInToken)
   ).add(gasCostL1QuoteToken);
-  const quote = sumFn(bestSwap.map((routeWithValidQuote) => routeWithValidQuote.quote));
+  const quote = sumFn(
+    bestSwap.map((routeWithValidQuote) => routeWithValidQuote.quote)
+  );
   if (tradeType === TradeType.EXACT_INPUT) {
-    const quoteGasAdjustedForL1 = quoteGasAdjusted.subtract(gasCostL1QuoteToken);
+    const quoteGasAdjustedForL1 =
+      quoteGasAdjusted.subtract(gasCostL1QuoteToken);
     quoteGasAdjusted = quoteGasAdjustedForL1;
   } else {
     const quoteGasAdjustedForL1 = quoteGasAdjusted.add(gasCostL1QuoteToken);
     quoteGasAdjusted = quoteGasAdjustedForL1;
   }
-  const routeWithQuotes = bestSwap.sort(
-    (routeAmountA, routeAmountB) => routeAmountB.amount.greaterThan(routeAmountA.amount) ? 1 : -1
+  const routeWithQuotes = bestSwap.sort((routeAmountA, routeAmountB) =>
+    routeAmountB.amount.greaterThan(routeAmountA.amount) ? 1 : -1
   );
   return {
     quote,
@@ -1264,12 +1691,14 @@ function getBestSwapRouteBy(tradeType, percentToQuotes, percents, chainId, by, {
     estimatedGasUsed,
     estimatedGasUsedUSD,
     estimatedGasUsedQuoteToken,
-    routes: routeWithQuotes
+    routes: routeWithQuotes,
   };
 }
 var findFirstRouteNotUsingUsedPools = (usedRoutes, candidateRouteQuotes) => {
   const poolAddressSet = /* @__PURE__ */ new Set();
-  const usedPoolAddresses = flatMap(usedRoutes, ({ pools }) => pools.map(getPoolAddress));
+  const usedPoolAddresses = flatMap(usedRoutes, ({ pools }) =>
+    pools.map(getPoolAddress)
+  );
   for (const poolAddress of usedPoolAddresses) {
     poolAddressSet.add(poolAddress);
   }
@@ -1286,8 +1715,7 @@ var findFirstRouteNotUsingUsedPools = (usedRoutes, candidateRouteQuotes) => {
 function parseUnits(value, decimals) {
   let [integer, fraction = "0"] = value.split(".");
   const negative = integer.startsWith("-");
-  if (negative)
-    integer = integer.slice(1);
+  if (negative) integer = integer.slice(1);
   fraction = fraction.replace(/(0+)$/, "");
   if (decimals === 0) {
     if (Math.round(Number(`.${fraction}`)) === 1)
@@ -1297,13 +1725,12 @@ function parseUnits(value, decimals) {
     const [left, unit, right] = [
       fraction.slice(0, decimals - 1),
       fraction.slice(decimals - 1, decimals),
-      fraction.slice(decimals)
+      fraction.slice(decimals),
     ];
     const rounded = Math.round(Number(`${unit}.${right}`));
     if (rounded > 9)
       fraction = `${BigInt(left) + BigInt(1)}0`.padStart(left.length + 1, "0");
-    else
-      fraction = `${left}${rounded}`;
+    else fraction = `${left}${rounded}`;
     if (fraction.length > decimals) {
       fraction = fraction.slice(1);
       integer = `${BigInt(integer) + BigInt(1)}`;
@@ -1343,7 +1770,7 @@ async function createGasModel({
   quoteCurrency,
   blockNumber,
   quoteCurrencyUsdPrice,
-  nativeCurrencyUsdPrice
+  nativeCurrencyUsdPrice,
 }) {
   const { chainId } = quoteCurrency;
   const usdToken = getUsdGasToken(chainId);
@@ -1352,19 +1779,36 @@ async function createGasModel({
   }
   const nativeWrappedToken = getNativeWrappedToken(chainId);
   if (!nativeWrappedToken) {
-    throw new Error(`Unsupported chain ${chainId}. Native wrapped token not found.`);
+    throw new Error(
+      `Unsupported chain ${chainId}. Native wrapped token not found.`
+    );
   }
-  const gasPrice = BigInt(typeof gasPriceWei === "function" ? await gasPriceWei() : gasPriceWei);
+  const gasPrice = BigInt(
+    typeof gasPriceWei === "function" ? await gasPriceWei() : gasPriceWei
+  );
   const [usdPool, nativePool] = await Promise.all([
     getHighestLiquidityUSDPool(poolProvider, chainId, blockNumber),
-    getHighestLiquidityNativePool(poolProvider, quoteCurrency, blockNumber)
+    getHighestLiquidityNativePool(poolProvider, quoteCurrency, blockNumber),
   ]);
-  const priceInUsd = quoteCurrencyUsdPrice ? getTokenPriceByNumber(usdToken, quoteCurrency, quoteCurrencyUsdPrice) : void 0;
-  const nativePriceInUsd = nativeCurrencyUsdPrice ? getTokenPriceByNumber(usdToken, nativeWrappedToken, nativeCurrencyUsdPrice) : void 0;
-  const priceInNative = priceInUsd && nativePriceInUsd ? nativePriceInUsd.multiply(priceInUsd.invert()) : void 0;
+  const priceInUsd = quoteCurrencyUsdPrice
+    ? getTokenPriceByNumber(usdToken, quoteCurrency, quoteCurrencyUsdPrice)
+    : void 0;
+  const nativePriceInUsd = nativeCurrencyUsdPrice
+    ? getTokenPriceByNumber(
+        usdToken,
+        nativeWrappedToken,
+        nativeCurrencyUsdPrice
+      )
+    : void 0;
+  const priceInNative =
+    priceInUsd && nativePriceInUsd
+      ? nativePriceInUsd.multiply(priceInUsd.invert())
+      : void 0;
   const estimateGasCost = ({ pools }, { initializedTickCrossedList }) => {
     const isQuoteNative = nativeWrappedToken.equals(quoteCurrency.wrapped);
-    const totalInitializedTicksCrossed = BigInt(Math.max(1, sum(initializedTickCrossedList)));
+    const totalInitializedTicksCrossed = BigInt(
+      Math.max(1, sum(initializedTickCrossedList))
+    );
     const poolTypeSet = /* @__PURE__ */ new Set();
     let baseGasUse = BigInt(0);
     for (const pool of pools) {
@@ -1387,11 +1831,15 @@ async function createGasModel({
         continue;
       }
     }
-    const tickGasUse = COST_PER_INIT_TICK(chainId) * totalInitializedTicksCrossed;
+    const tickGasUse =
+      COST_PER_INIT_TICK(chainId) * totalInitializedTicksCrossed;
     const uninitializedTickGasUse = COST_PER_UNINIT_TICK * BigInt(0);
     baseGasUse = baseGasUse + tickGasUse + uninitializedTickGasUse;
     const baseGasCostWei = gasPrice * baseGasUse;
-    const totalGasCostNativeCurrency = CurrencyAmount.fromRawAmount(nativeWrappedToken, baseGasCostWei);
+    const totalGasCostNativeCurrency = CurrencyAmount.fromRawAmount(
+      nativeWrappedToken,
+      baseGasCostWei
+    );
     let gasCostInToken = CurrencyAmount.fromRawAmount(quoteCurrency.wrapped, 0);
     let gasCostInUSD = CurrencyAmount.fromRawAmount(usdToken, 0);
     try {
@@ -1399,28 +1847,40 @@ async function createGasModel({
         gasCostInToken = totalGasCostNativeCurrency;
       }
       if (!isQuoteNative) {
-        const price = priceInNative || nativePool && getTokenPrice(nativePool, nativeWrappedToken, quoteCurrency.wrapped);
+        const price =
+          priceInNative ||
+          (nativePool &&
+            getTokenPrice(
+              nativePool,
+              nativeWrappedToken,
+              quoteCurrency.wrapped
+            ));
         if (price) {
           gasCostInToken = price.quote(totalGasCostNativeCurrency);
         }
       }
-      const nativeTokenUsdPrice = nativePriceInUsd || usdPool && getTokenPrice(usdPool, nativeWrappedToken, usdToken);
+      const nativeTokenUsdPrice =
+        nativePriceInUsd ||
+        (usdPool && getTokenPrice(usdPool, nativeWrappedToken, usdToken));
       if (nativeTokenUsdPrice) {
         gasCostInUSD = nativeTokenUsdPrice.quote(totalGasCostNativeCurrency);
       }
-    } catch (e) {
-    }
+    } catch (e) {}
     return {
       gasEstimate: baseGasUse,
       gasCostInToken,
-      gasCostInUSD
+      gasCostInUSD,
     };
   };
   return {
-    estimateGasCost
+    estimateGasCost,
   };
 }
-async function getHighestLiquidityNativePool(poolProvider, currency, blockNumber) {
+async function getHighestLiquidityNativePool(
+  poolProvider,
+  currency,
+  blockNumber
+) {
   const nativeWrappedToken = getNativeWrappedToken(currency.chainId);
   if (!nativeWrappedToken || currency.wrapped.equals(nativeWrappedToken)) {
     return null;
@@ -1429,7 +1889,7 @@ async function getHighestLiquidityNativePool(poolProvider, currency, blockNumber
     blockNumber,
     pairs: [[nativeWrappedToken, currency]],
     currencyA: nativeWrappedToken,
-    currencyB: currency
+    currencyB: currency,
   });
   return pools[0] ?? null;
 }
@@ -1443,7 +1903,7 @@ async function getHighestLiquidityUSDPool(poolProvider, chainId, blockNumber) {
     blockNumber,
     pairs: [[nativeWrappedToken, usdToken]],
     currencyA: nativeWrappedToken,
-    currencyB: usdToken
+    currencyB: usdToken,
   });
   return pools[0] ?? null;
 }
@@ -1456,40 +1916,70 @@ async function getRoutesWithValidQuote({
   blockNumber,
   gasModel,
   quoterOptimization = true,
-  signal
+  signal,
 }) {
-  const [percents, amounts] = getAmountDistribution(amount, distributionPercent);
+  const [percents, amounts] = getAmountDistribution(
+    amount,
+    distributionPercent
+  );
   const routesWithoutQuote = amounts.reduce(
     (acc, curAmount, i) => [
       ...acc,
       ...baseRoutes.map((r) => ({
         ...r,
         amount: curAmount,
-        percent: percents[i]
-      }))
+        percent: percents[i],
+      })),
     ],
     []
   );
-  const getRoutesWithQuote = tradeType === TradeType.EXACT_INPUT ? quoteProvider2.getRouteWithQuotesExactIn : quoteProvider2.getRouteWithQuotesExactOut;
+  const getRoutesWithQuote =
+    tradeType === TradeType.EXACT_INPUT
+      ? quoteProvider2.getRouteWithQuotesExactIn
+      : quoteProvider2.getRouteWithQuotesExactOut;
   if (!quoterOptimization) {
-    return getRoutesWithQuote(routesWithoutQuote, { blockNumber, gasModel, signal });
-  }
-  const requestCallback = typeof window === "undefined" ? setTimeout : window.requestIdleCallback || window.setTimeout;
-  logger.metric("Get quotes", "from", routesWithoutQuote.length, "routes", routesWithoutQuote);
-  const getQuotes = (routes) => new Promise((resolve, reject) => {
-    requestCallback(async () => {
-      try {
-        const result2 = await getRoutesWithQuote(routes, { blockNumber, gasModel, signal });
-        resolve(result2);
-      } catch (e) {
-        reject(e);
-      }
+    return getRoutesWithQuote(routesWithoutQuote, {
+      blockNumber,
+      gasModel,
+      signal,
     });
-  });
+  }
+  const requestCallback =
+    typeof window === "undefined"
+      ? setTimeout
+      : window.requestIdleCallback || window.setTimeout;
+  logger.metric(
+    "Get quotes",
+    "from",
+    routesWithoutQuote.length,
+    "routes",
+    routesWithoutQuote
+  );
+  const getQuotes = (routes) =>
+    new Promise((resolve, reject) => {
+      requestCallback(async () => {
+        try {
+          const result2 = await getRoutesWithQuote(routes, {
+            blockNumber,
+            gasModel,
+            signal,
+          });
+          resolve(result2);
+        } catch (e) {
+          reject(e);
+        }
+      });
+    });
   const chunks = chunk(routesWithoutQuote, 10);
   const result = await Promise.all(chunks.map(getQuotes));
   const quotes = result.reduce((acc, cur) => [...acc, ...cur], []);
-  logger.metric("Get quotes", "success, got", quotes.length, "quoted routes", quotes);
+  logger.metric(
+    "Get quotes",
+    "success, got",
+    quotes.length,
+    "quoted routes",
+    quotes
+  );
   return quotes;
 }
 
@@ -1500,37 +1990,47 @@ var DEFAULT_POOL_SELECTOR_CONFIG = {
   topNTokenInOut: 2,
   topNSecondHop: 1,
   topNWithEachBaseToken: 3,
-  topNWithBaseToken: 3
+  topNWithBaseToken: 3,
 };
 var V3_DEFAULT_POOL_SELECTOR_CONFIG = {
-  [84532 /* BASE_SEPOLIA */]: {
+  // [84532 /* BASE_SEPOLIA */]: {
+  [943 /* PULSECHAIN_TESTNET */]: {
     topN: 2,
     topNDirectSwaps: 2,
     topNTokenInOut: 2,
     topNSecondHop: 1,
     topNWithEachBaseToken: 3,
-    topNWithBaseToken: 4
-  }
+    topNWithBaseToken: 4,
+  },
 };
 var V2_DEFAULT_POOL_SELECTOR_CONFIG = {
-  [84532 /* BASE_SEPOLIA */]: {
+  // [84532 /* BASE_SEPOLIA */]: {
+  [943 /* PULSECHAIN_TESTNET */]: {
     topN: 3,
     topNDirectSwaps: 2,
     topNTokenInOut: 2,
     topNSecondHop: 1,
     topNWithEachBaseToken: 3,
-    topNWithBaseToken: 3
-  }
+    topNWithBaseToken: 3,
+  },
 };
 var V3_TOKEN_POOL_SELECTOR_CONFIG = {
-  [84532 /* BASE_SEPOLIA */]: {
-    [baseSepoliaTokens.usdt.address]: {
-      topNTokenInOut: 4
+  // [84532 /* BASE_SEPOLIA */]: {
+  //   [baseSepoliaTokens.usdt.address]: {
+  //     topNTokenInOut: 4,
+  //   },
+  //   [baseSepoliaTokens.weth.address]: {
+  //     topNTokenInOut: 4,
+  //   },
+  // },
+  [943 /* PULSECHAIN_TESTNET */]: {
+    [pulsechainTestnetTokens.wpls.address]: {
+      topNTokenInOut: 4,
     },
-    [baseSepoliaTokens.weth.address]: {
-      topNTokenInOut: 4
-    }
-  }
+    [pulsechainTestnetTokens.rob.address]: {
+      topNTokenInOut: 4,
+    },
+  },
 };
 var V2_TOKEN_POOL_SELECTOR_CONFIG = {};
 
@@ -1539,17 +2039,24 @@ var ROUTE_CONFIG_BY_CHAIN = {};
 
 // evm/v3-router/getBestTrade.ts
 async function getBestTrade(amount, currency, tradeType, config) {
-  const amountBN = CurrencyAmount.fromRawAmount(amount.currency, BigInt(amount.quotient.toString()));
+  const amountBN = CurrencyAmount.fromRawAmount(
+    amount.currency,
+    BigInt(amount.quotient.toString())
+  );
   const { blockNumber: blockNumberFromConfig } = config;
-  const blockNumber = typeof blockNumberFromConfig === "function" ? await blockNumberFromConfig() : blockNumberFromConfig;
+  const blockNumber =
+    typeof blockNumberFromConfig === "function"
+      ? await blockNumberFromConfig()
+      : blockNumberFromConfig;
   const bestRoutes = await getBestRoutes(amountBN, currency, tradeType, {
     ...config,
-    blockNumber
+    blockNumber,
   });
   if (!bestRoutes || bestRoutes.outputAmount.equalTo(ZERO$1)) {
     throw new Error("Cannot find a valid swap route");
   }
-  const { routes, gasEstimateInUSD, gasEstimate, inputAmount, outputAmount } = bestRoutes;
+  const { routes, gasEstimateInUSD, gasEstimate, inputAmount, outputAmount } =
+    bestRoutes;
   return {
     tradeType,
     routes,
@@ -1557,7 +2064,7 @@ async function getBestTrade(amount, currency, tradeType, config) {
     gasEstimateInUSD,
     inputAmount,
     outputAmount,
-    blockNumber
+    blockNumber,
   };
 }
 async function getBestRoutes(amount, currency, tradeType, routeConfig) {
@@ -1574,10 +2081,10 @@ async function getBestRoutes(amount, currency, tradeType, routeConfig) {
     quoterOptimization,
     quoteCurrencyUsdPrice,
     nativeCurrencyUsdPrice,
-    signal
+    signal,
   } = {
     ...routeConfig,
-    ...ROUTE_CONFIG_BY_CHAIN[chainId] || {}
+    ...(ROUTE_CONFIG_BY_CHAIN[chainId] || {}),
   };
   const isExactIn = tradeType === TradeType.EXACT_INPUT;
   const inputCurrency = isExactIn ? amount.currency : currency;
@@ -1587,9 +2094,14 @@ async function getBestRoutes(amount, currency, tradeType, routeConfig) {
     currencyB: currency,
     blockNumber,
     protocols: allowedPoolTypes,
-    signal
+    signal,
   });
-  let baseRoutes = computeAllRoutes(inputCurrency, outputCurrency, candidatePools, maxHops);
+  let baseRoutes = computeAllRoutes(
+    inputCurrency,
+    outputCurrency,
+    candidatePools,
+    maxHops
+  );
   if (tradeType === TradeType.EXACT_OUTPUT) {
     baseRoutes = baseRoutes.filter(({ type }) => type !== 3 /* MIXED */);
   }
@@ -1599,7 +2111,7 @@ async function getBestRoutes(amount, currency, tradeType, routeConfig) {
     quoteCurrency: currency,
     blockNumber,
     quoteCurrencyUsdPrice,
-    nativeCurrencyUsdPrice
+    nativeCurrencyUsdPrice,
   });
   const routesWithValidQuote = await getRoutesWithValidQuote({
     amount,
@@ -1610,9 +2122,15 @@ async function getBestRoutes(amount, currency, tradeType, routeConfig) {
     blockNumber,
     gasModel,
     quoterOptimization,
-    signal
+    signal,
   });
-  return getBestRouteCombinationByQuotes(amount, currency, routesWithValidQuote, tradeType, { maxSplits });
+  return getBestRouteCombinationByQuotes(
+    amount,
+    currency,
+    routesWithValidQuote,
+    tradeType,
+    { maxSplits }
+  );
 }
 
 // evm/v3-router/providers/poolProviders/poolProviderWithCache.ts
@@ -1641,8 +2159,11 @@ function withTimeout(fn, duration) {
     return Promise.race([
       fn(...args),
       new Promise((_, reject) => {
-        setTimeout(() => reject(new Error(`Request timeout ${duration}ms`)), duration);
-      })
+        setTimeout(
+          () => reject(new Error(`Request timeout ${duration}ms`)),
+          duration
+        );
+      }),
     ]);
   };
 }
@@ -1653,7 +2174,8 @@ function withFallback(calls) {
       throw new Error("No valid calls");
     }
     for (const [index, { timeout = 2e3, asyncFn }] of calls.entries()) {
-      const fn = index < numOfCalls - 1 ? withTimeout(asyncFn, timeout) : asyncFn;
+      const fn =
+        index < numOfCalls - 1 ? withTimeout(asyncFn, timeout) : asyncFn;
       try {
         const result = await fn(...args);
         return result;
@@ -1672,7 +2194,7 @@ function createAsyncCallWithFallbacks(defaultCall, options) {
   return withFallback(
     [defaultCall, ...fallbacks].map((asyncFn) => ({
       asyncFn,
-      timeout
+      timeout,
     }))
   );
 }
@@ -1685,7 +2207,11 @@ var tokenPriceQuery = gql`
   }
 `;
 function createCommonTokenPriceProvider(getTokenPrices) {
-  return async function getCommonTokenPrices2({ currencyA, currencyB, ...rest }) {
+  return async function getCommonTokenPrices2({
+    currencyA,
+    currencyB,
+    ...rest
+  }) {
     const baseTokens = getCheckAgainstBaseTokens(currencyA, currencyB);
     if (!baseTokens) {
       return null;
@@ -1697,7 +2223,11 @@ function createCommonTokenPriceProvider(getTokenPrices) {
       idToToken[address] = t;
       return address;
     });
-    const tokenPrices = await getTokenPrices({ addresses, chainId: currencyA?.chainId, ...rest });
+    const tokenPrices = await getTokenPrices({
+      addresses,
+      chainId: currencyA?.chainId,
+      ...rest,
+    });
     for (const { address, priceUSD } of tokenPrices) {
       const token = idToToken[getAddress(address)];
       if (token) {
@@ -1707,31 +2237,24 @@ function createCommonTokenPriceProvider(getTokenPrices) {
     return map;
   };
 }
-var getTokenUsdPricesBySubgraph = async ({
-  addresses,
-  chainId,
-  provider
-}) => {
+var getTokenUsdPricesBySubgraph = async ({ addresses, chainId, provider }) => {
   const client = provider?.({ chainId });
   if (!client) {
     throw new Error("No valid subgraph data provider");
   }
-  const { tokens: tokenPrices } = await client.request(
-    tokenPriceQuery,
-    {
-      pageSize: 1e3,
-      tokenAddrs: addresses.map((addr) => addr.toLocaleLowerCase())
-    }
-  );
+  const { tokens: tokenPrices } = await client.request(tokenPriceQuery, {
+    pageSize: 1e3,
+    tokenAddrs: addresses.map((addr) => addr.toLocaleLowerCase()),
+  });
   return tokenPrices.map(({ id, derivedUSD }) => ({
     address: id,
-    priceUSD: derivedUSD
+    priceUSD: derivedUSD,
   }));
 };
-var getCommonTokenPricesBySubgraph = createCommonTokenPriceProvider(getTokenUsdPricesBySubgraph);
-var createGetTokenPriceFromLlmaWithCache = ({
-  endpoint
-}) => {
+var getCommonTokenPricesBySubgraph = createCommonTokenPriceProvider(
+  getTokenUsdPricesBySubgraph
+);
+var createGetTokenPriceFromLlmaWithCache = ({ endpoint }) => {
   const cache = /* @__PURE__ */ new Map();
   return async ({ addresses, chainId }) => {
     if (!chainId || !getLlamaChainName(chainId)) {
@@ -1752,10 +2275,13 @@ var createGetTokenPriceFromLlmaWithCache = ({
     if (!addressesToFetch.length) {
       return cachedResults;
     }
-    const list = addressesToFetch.map((address) => `${getLlamaChainName(chainId)}:${address.toLocaleLowerCase()}`).join(",");
-    const result = await fetch(`${endpoint}/${list}`).then(
-      (res) => res.json()
-    );
+    const list = addressesToFetch
+      .map(
+        (address) =>
+          `${getLlamaChainName(chainId)}:${address.toLocaleLowerCase()}`
+      )
+      .join(",");
+    const result = await fetch(`${endpoint}/${list}`).then((res) => res.json());
     const { coins = {} } = result;
     return [
       ...cachedResults,
@@ -1764,1199 +2290,1204 @@ var createGetTokenPriceFromLlmaWithCache = ({
         const tokenPrice = { address, priceUSD: value.price };
         cache.set(getAddress(address), tokenPrice);
         return tokenPrice;
-      })
+      }),
     ];
   };
 };
 var getCommonTokenPricesByLlma = createCommonTokenPriceProvider(
   createGetTokenPriceFromLlmaWithCache({
-    endpoint: "https://coins.llama.fi/prices/current"
+    endpoint: "https://coins.llama.fi/prices/current",
   })
 );
 var getCommonTokenPricesByWalletApi = createCommonTokenPriceProvider(
   createGetTokenPriceFromLlmaWithCache({
-    endpoint: "https://alpha.wallet-api.pancakeswap.com/v0/prices"
+    endpoint: "https://alpha.wallet-api.pancakeswap.com/v0/prices",
   })
 );
 var getCommonTokenPrices = withFallback([
   {
-    asyncFn: ({ currencyA, currencyB, v3SubgraphProvider }) => getCommonTokenPricesBySubgraph({ currencyA, currencyB, provider: v3SubgraphProvider })
-  }
+    asyncFn: ({ currencyA, currencyB, v3SubgraphProvider }) =>
+      getCommonTokenPricesBySubgraph({
+        currencyA,
+        currencyB,
+        provider: v3SubgraphProvider,
+      }),
+  },
 ]);
 
 // evm/abis/AlgebraPoolABI.ts
 var algebraPoolABI = [
   {
-    "inputs": [],
-    "name": "alreadyInitialized",
-    "type": "error"
+    inputs: [],
+    name: "alreadyInitialized",
+    type: "error",
   },
   {
-    "inputs": [],
-    "name": "arithmeticError",
-    "type": "error"
+    inputs: [],
+    name: "arithmeticError",
+    type: "error",
   },
   {
-    "inputs": [],
-    "name": "bottomTickLowerThanMIN",
-    "type": "error"
+    inputs: [],
+    name: "bottomTickLowerThanMIN",
+    type: "error",
   },
   {
-    "inputs": [],
-    "name": "dynamicFeeActive",
-    "type": "error"
+    inputs: [],
+    name: "dynamicFeeActive",
+    type: "error",
   },
   {
-    "inputs": [],
-    "name": "dynamicFeeDisabled",
-    "type": "error"
+    inputs: [],
+    name: "dynamicFeeDisabled",
+    type: "error",
   },
   {
-    "inputs": [],
-    "name": "flashInsufficientPaid0",
-    "type": "error"
+    inputs: [],
+    name: "flashInsufficientPaid0",
+    type: "error",
   },
   {
-    "inputs": [],
-    "name": "flashInsufficientPaid1",
-    "type": "error"
+    inputs: [],
+    name: "flashInsufficientPaid1",
+    type: "error",
   },
   {
-    "inputs": [],
-    "name": "insufficientInputAmount",
-    "type": "error"
+    inputs: [],
+    name: "insufficientInputAmount",
+    type: "error",
   },
   {
-    "inputs": [],
-    "name": "invalidAmountRequired",
-    "type": "error"
+    inputs: [],
+    name: "invalidAmountRequired",
+    type: "error",
   },
   {
-    "inputs": [
+    inputs: [
       {
-        "internalType": "bytes4",
-        "name": "selector",
-        "type": "bytes4"
-      }
+        internalType: "bytes4",
+        name: "selector",
+        type: "bytes4",
+      },
     ],
-    "name": "invalidHookResponse",
-    "type": "error"
+    name: "invalidHookResponse",
+    type: "error",
   },
   {
-    "inputs": [],
-    "name": "invalidLimitSqrtPrice",
-    "type": "error"
+    inputs: [],
+    name: "invalidLimitSqrtPrice",
+    type: "error",
   },
   {
-    "inputs": [],
-    "name": "invalidNewCommunityFee",
-    "type": "error"
+    inputs: [],
+    name: "invalidNewCommunityFee",
+    type: "error",
   },
   {
-    "inputs": [],
-    "name": "invalidNewTickSpacing",
-    "type": "error"
+    inputs: [],
+    name: "invalidNewTickSpacing",
+    type: "error",
   },
   {
-    "inputs": [],
-    "name": "liquidityAdd",
-    "type": "error"
+    inputs: [],
+    name: "liquidityAdd",
+    type: "error",
   },
   {
-    "inputs": [],
-    "name": "liquidityOverflow",
-    "type": "error"
+    inputs: [],
+    name: "liquidityOverflow",
+    type: "error",
   },
   {
-    "inputs": [],
-    "name": "liquiditySub",
-    "type": "error"
+    inputs: [],
+    name: "liquiditySub",
+    type: "error",
   },
   {
-    "inputs": [],
-    "name": "locked",
-    "type": "error"
+    inputs: [],
+    name: "locked",
+    type: "error",
   },
   {
-    "inputs": [],
-    "name": "notAllowed",
-    "type": "error"
+    inputs: [],
+    name: "notAllowed",
+    type: "error",
   },
   {
-    "inputs": [],
-    "name": "notInitialized",
-    "type": "error"
+    inputs: [],
+    name: "notInitialized",
+    type: "error",
   },
   {
-    "inputs": [],
-    "name": "onlyFarming",
-    "type": "error"
+    inputs: [],
+    name: "onlyFarming",
+    type: "error",
   },
   {
-    "inputs": [],
-    "name": "pluginIsNotConnected",
-    "type": "error"
+    inputs: [],
+    name: "pluginIsNotConnected",
+    type: "error",
   },
   {
-    "inputs": [],
-    "name": "priceOutOfRange",
-    "type": "error"
+    inputs: [],
+    name: "priceOutOfRange",
+    type: "error",
   },
   {
-    "inputs": [],
-    "name": "tickInvalidLinks",
-    "type": "error"
+    inputs: [],
+    name: "tickInvalidLinks",
+    type: "error",
   },
   {
-    "inputs": [],
-    "name": "tickIsNotInitialized",
-    "type": "error"
+    inputs: [],
+    name: "tickIsNotInitialized",
+    type: "error",
   },
   {
-    "inputs": [],
-    "name": "tickIsNotSpaced",
-    "type": "error"
+    inputs: [],
+    name: "tickIsNotSpaced",
+    type: "error",
   },
   {
-    "inputs": [],
-    "name": "tickOutOfRange",
-    "type": "error"
+    inputs: [],
+    name: "tickOutOfRange",
+    type: "error",
   },
   {
-    "inputs": [],
-    "name": "topTickAboveMAX",
-    "type": "error"
+    inputs: [],
+    name: "topTickAboveMAX",
+    type: "error",
   },
   {
-    "inputs": [],
-    "name": "topTickLowerOrEqBottomTick",
-    "type": "error"
+    inputs: [],
+    name: "topTickLowerOrEqBottomTick",
+    type: "error",
   },
   {
-    "inputs": [],
-    "name": "transferFailed",
-    "type": "error"
+    inputs: [],
+    name: "transferFailed",
+    type: "error",
   },
   {
-    "inputs": [],
-    "name": "zeroAmountRequired",
-    "type": "error"
+    inputs: [],
+    name: "zeroAmountRequired",
+    type: "error",
   },
   {
-    "inputs": [],
-    "name": "zeroLiquidityActual",
-    "type": "error"
+    inputs: [],
+    name: "zeroLiquidityActual",
+    type: "error",
   },
   {
-    "inputs": [],
-    "name": "zeroLiquidityDesired",
-    "type": "error"
+    inputs: [],
+    name: "zeroLiquidityDesired",
+    type: "error",
   },
   {
-    "anonymous": false,
-    "inputs": [
+    anonymous: false,
+    inputs: [
       {
-        "indexed": true,
-        "internalType": "address",
-        "name": "owner",
-        "type": "address"
+        indexed: true,
+        internalType: "address",
+        name: "owner",
+        type: "address",
       },
       {
-        "indexed": true,
-        "internalType": "int24",
-        "name": "bottomTick",
-        "type": "int24"
+        indexed: true,
+        internalType: "int24",
+        name: "bottomTick",
+        type: "int24",
       },
       {
-        "indexed": true,
-        "internalType": "int24",
-        "name": "topTick",
-        "type": "int24"
+        indexed: true,
+        internalType: "int24",
+        name: "topTick",
+        type: "int24",
       },
       {
-        "indexed": false,
-        "internalType": "uint128",
-        "name": "liquidityAmount",
-        "type": "uint128"
+        indexed: false,
+        internalType: "uint128",
+        name: "liquidityAmount",
+        type: "uint128",
       },
       {
-        "indexed": false,
-        "internalType": "uint256",
-        "name": "amount0",
-        "type": "uint256"
+        indexed: false,
+        internalType: "uint256",
+        name: "amount0",
+        type: "uint256",
       },
       {
-        "indexed": false,
-        "internalType": "uint256",
-        "name": "amount1",
-        "type": "uint256"
-      }
+        indexed: false,
+        internalType: "uint256",
+        name: "amount1",
+        type: "uint256",
+      },
     ],
-    "name": "Burn",
-    "type": "event"
+    name: "Burn",
+    type: "event",
   },
   {
-    "anonymous": false,
-    "inputs": [
+    anonymous: false,
+    inputs: [
       {
-        "indexed": true,
-        "internalType": "address",
-        "name": "owner",
-        "type": "address"
+        indexed: true,
+        internalType: "address",
+        name: "owner",
+        type: "address",
       },
       {
-        "indexed": false,
-        "internalType": "address",
-        "name": "recipient",
-        "type": "address"
+        indexed: false,
+        internalType: "address",
+        name: "recipient",
+        type: "address",
       },
       {
-        "indexed": true,
-        "internalType": "int24",
-        "name": "bottomTick",
-        "type": "int24"
+        indexed: true,
+        internalType: "int24",
+        name: "bottomTick",
+        type: "int24",
       },
       {
-        "indexed": true,
-        "internalType": "int24",
-        "name": "topTick",
-        "type": "int24"
+        indexed: true,
+        internalType: "int24",
+        name: "topTick",
+        type: "int24",
       },
       {
-        "indexed": false,
-        "internalType": "uint128",
-        "name": "amount0",
-        "type": "uint128"
+        indexed: false,
+        internalType: "uint128",
+        name: "amount0",
+        type: "uint128",
       },
       {
-        "indexed": false,
-        "internalType": "uint128",
-        "name": "amount1",
-        "type": "uint128"
-      }
+        indexed: false,
+        internalType: "uint128",
+        name: "amount1",
+        type: "uint128",
+      },
     ],
-    "name": "Collect",
-    "type": "event"
+    name: "Collect",
+    type: "event",
   },
   {
-    "anonymous": false,
-    "inputs": [
+    anonymous: false,
+    inputs: [
       {
-        "indexed": false,
-        "internalType": "uint16",
-        "name": "communityFeeNew",
-        "type": "uint16"
-      }
+        indexed: false,
+        internalType: "uint16",
+        name: "communityFeeNew",
+        type: "uint16",
+      },
     ],
-    "name": "CommunityFee",
-    "type": "event"
+    name: "CommunityFee",
+    type: "event",
   },
   {
-    "anonymous": false,
-    "inputs": [
+    anonymous: false,
+    inputs: [
       {
-        "indexed": false,
-        "internalType": "uint16",
-        "name": "fee",
-        "type": "uint16"
-      }
+        indexed: false,
+        internalType: "uint16",
+        name: "fee",
+        type: "uint16",
+      },
     ],
-    "name": "Fee",
-    "type": "event"
+    name: "Fee",
+    type: "event",
   },
   {
-    "anonymous": false,
-    "inputs": [
+    anonymous: false,
+    inputs: [
       {
-        "indexed": true,
-        "internalType": "address",
-        "name": "sender",
-        "type": "address"
+        indexed: true,
+        internalType: "address",
+        name: "sender",
+        type: "address",
       },
       {
-        "indexed": true,
-        "internalType": "address",
-        "name": "recipient",
-        "type": "address"
+        indexed: true,
+        internalType: "address",
+        name: "recipient",
+        type: "address",
       },
       {
-        "indexed": false,
-        "internalType": "uint256",
-        "name": "amount0",
-        "type": "uint256"
+        indexed: false,
+        internalType: "uint256",
+        name: "amount0",
+        type: "uint256",
       },
       {
-        "indexed": false,
-        "internalType": "uint256",
-        "name": "amount1",
-        "type": "uint256"
+        indexed: false,
+        internalType: "uint256",
+        name: "amount1",
+        type: "uint256",
       },
       {
-        "indexed": false,
-        "internalType": "uint256",
-        "name": "paid0",
-        "type": "uint256"
+        indexed: false,
+        internalType: "uint256",
+        name: "paid0",
+        type: "uint256",
       },
       {
-        "indexed": false,
-        "internalType": "uint256",
-        "name": "paid1",
-        "type": "uint256"
-      }
+        indexed: false,
+        internalType: "uint256",
+        name: "paid1",
+        type: "uint256",
+      },
     ],
-    "name": "Flash",
-    "type": "event"
+    name: "Flash",
+    type: "event",
   },
   {
-    "anonymous": false,
-    "inputs": [
+    anonymous: false,
+    inputs: [
       {
-        "indexed": false,
-        "internalType": "uint160",
-        "name": "price",
-        "type": "uint160"
+        indexed: false,
+        internalType: "uint160",
+        name: "price",
+        type: "uint160",
       },
       {
-        "indexed": false,
-        "internalType": "int24",
-        "name": "tick",
-        "type": "int24"
-      }
+        indexed: false,
+        internalType: "int24",
+        name: "tick",
+        type: "int24",
+      },
     ],
-    "name": "Initialize",
-    "type": "event"
+    name: "Initialize",
+    type: "event",
   },
   {
-    "anonymous": false,
-    "inputs": [
+    anonymous: false,
+    inputs: [
       {
-        "indexed": false,
-        "internalType": "address",
-        "name": "sender",
-        "type": "address"
+        indexed: false,
+        internalType: "address",
+        name: "sender",
+        type: "address",
       },
       {
-        "indexed": true,
-        "internalType": "address",
-        "name": "owner",
-        "type": "address"
+        indexed: true,
+        internalType: "address",
+        name: "owner",
+        type: "address",
       },
       {
-        "indexed": true,
-        "internalType": "int24",
-        "name": "bottomTick",
-        "type": "int24"
+        indexed: true,
+        internalType: "int24",
+        name: "bottomTick",
+        type: "int24",
       },
       {
-        "indexed": true,
-        "internalType": "int24",
-        "name": "topTick",
-        "type": "int24"
+        indexed: true,
+        internalType: "int24",
+        name: "topTick",
+        type: "int24",
       },
       {
-        "indexed": false,
-        "internalType": "uint128",
-        "name": "liquidityAmount",
-        "type": "uint128"
+        indexed: false,
+        internalType: "uint128",
+        name: "liquidityAmount",
+        type: "uint128",
       },
       {
-        "indexed": false,
-        "internalType": "uint256",
-        "name": "amount0",
-        "type": "uint256"
+        indexed: false,
+        internalType: "uint256",
+        name: "amount0",
+        type: "uint256",
       },
       {
-        "indexed": false,
-        "internalType": "uint256",
-        "name": "amount1",
-        "type": "uint256"
-      }
+        indexed: false,
+        internalType: "uint256",
+        name: "amount1",
+        type: "uint256",
+      },
     ],
-    "name": "Mint",
-    "type": "event"
+    name: "Mint",
+    type: "event",
   },
   {
-    "anonymous": false,
-    "inputs": [
+    anonymous: false,
+    inputs: [
       {
-        "indexed": false,
-        "internalType": "address",
-        "name": "newPluginAddress",
-        "type": "address"
-      }
+        indexed: false,
+        internalType: "address",
+        name: "newPluginAddress",
+        type: "address",
+      },
     ],
-    "name": "Plugin",
-    "type": "event"
+    name: "Plugin",
+    type: "event",
   },
   {
-    "anonymous": false,
-    "inputs": [
+    anonymous: false,
+    inputs: [
       {
-        "indexed": false,
-        "internalType": "uint8",
-        "name": "newPluginConfig",
-        "type": "uint8"
-      }
+        indexed: false,
+        internalType: "uint8",
+        name: "newPluginConfig",
+        type: "uint8",
+      },
     ],
-    "name": "PluginConfig",
-    "type": "event"
+    name: "PluginConfig",
+    type: "event",
   },
   {
-    "anonymous": false,
-    "inputs": [
+    anonymous: false,
+    inputs: [
       {
-        "indexed": true,
-        "internalType": "address",
-        "name": "sender",
-        "type": "address"
+        indexed: true,
+        internalType: "address",
+        name: "sender",
+        type: "address",
       },
       {
-        "indexed": true,
-        "internalType": "address",
-        "name": "recipient",
-        "type": "address"
+        indexed: true,
+        internalType: "address",
+        name: "recipient",
+        type: "address",
       },
       {
-        "indexed": false,
-        "internalType": "int256",
-        "name": "amount0",
-        "type": "int256"
+        indexed: false,
+        internalType: "int256",
+        name: "amount0",
+        type: "int256",
       },
       {
-        "indexed": false,
-        "internalType": "int256",
-        "name": "amount1",
-        "type": "int256"
+        indexed: false,
+        internalType: "int256",
+        name: "amount1",
+        type: "int256",
       },
       {
-        "indexed": false,
-        "internalType": "uint160",
-        "name": "price",
-        "type": "uint160"
+        indexed: false,
+        internalType: "uint160",
+        name: "price",
+        type: "uint160",
       },
       {
-        "indexed": false,
-        "internalType": "uint128",
-        "name": "liquidity",
-        "type": "uint128"
+        indexed: false,
+        internalType: "uint128",
+        name: "liquidity",
+        type: "uint128",
       },
       {
-        "indexed": false,
-        "internalType": "int24",
-        "name": "tick",
-        "type": "int24"
-      }
+        indexed: false,
+        internalType: "int24",
+        name: "tick",
+        type: "int24",
+      },
     ],
-    "name": "Swap",
-    "type": "event"
+    name: "Swap",
+    type: "event",
   },
   {
-    "anonymous": false,
-    "inputs": [
+    anonymous: false,
+    inputs: [
       {
-        "indexed": false,
-        "internalType": "int24",
-        "name": "newTickSpacing",
-        "type": "int24"
-      }
+        indexed: false,
+        internalType: "int24",
+        name: "newTickSpacing",
+        type: "int24",
+      },
     ],
-    "name": "TickSpacing",
-    "type": "event"
+    name: "TickSpacing",
+    type: "event",
   },
   {
-    "inputs": [
+    inputs: [
       {
-        "internalType": "int24",
-        "name": "bottomTick",
-        "type": "int24"
+        internalType: "int24",
+        name: "bottomTick",
+        type: "int24",
       },
       {
-        "internalType": "int24",
-        "name": "topTick",
-        "type": "int24"
+        internalType: "int24",
+        name: "topTick",
+        type: "int24",
       },
       {
-        "internalType": "uint128",
-        "name": "amount",
-        "type": "uint128"
+        internalType: "uint128",
+        name: "amount",
+        type: "uint128",
       },
       {
-        "internalType": "bytes",
-        "name": "data",
-        "type": "bytes"
-      }
+        internalType: "bytes",
+        name: "data",
+        type: "bytes",
+      },
     ],
-    "name": "burn",
-    "outputs": [
+    name: "burn",
+    outputs: [
       {
-        "internalType": "uint256",
-        "name": "amount0",
-        "type": "uint256"
+        internalType: "uint256",
+        name: "amount0",
+        type: "uint256",
       },
       {
-        "internalType": "uint256",
-        "name": "amount1",
-        "type": "uint256"
-      }
+        internalType: "uint256",
+        name: "amount1",
+        type: "uint256",
+      },
     ],
-    "stateMutability": "nonpayable",
-    "type": "function"
+    stateMutability: "nonpayable",
+    type: "function",
   },
   {
-    "inputs": [
+    inputs: [
       {
-        "internalType": "address",
-        "name": "recipient",
-        "type": "address"
+        internalType: "address",
+        name: "recipient",
+        type: "address",
       },
       {
-        "internalType": "int24",
-        "name": "bottomTick",
-        "type": "int24"
+        internalType: "int24",
+        name: "bottomTick",
+        type: "int24",
       },
       {
-        "internalType": "int24",
-        "name": "topTick",
-        "type": "int24"
+        internalType: "int24",
+        name: "topTick",
+        type: "int24",
       },
       {
-        "internalType": "uint128",
-        "name": "amount0Requested",
-        "type": "uint128"
+        internalType: "uint128",
+        name: "amount0Requested",
+        type: "uint128",
       },
       {
-        "internalType": "uint128",
-        "name": "amount1Requested",
-        "type": "uint128"
-      }
+        internalType: "uint128",
+        name: "amount1Requested",
+        type: "uint128",
+      },
     ],
-    "name": "collect",
-    "outputs": [
+    name: "collect",
+    outputs: [
       {
-        "internalType": "uint128",
-        "name": "amount0",
-        "type": "uint128"
+        internalType: "uint128",
+        name: "amount0",
+        type: "uint128",
       },
       {
-        "internalType": "uint128",
-        "name": "amount1",
-        "type": "uint128"
-      }
+        internalType: "uint128",
+        name: "amount1",
+        type: "uint128",
+      },
     ],
-    "stateMutability": "nonpayable",
-    "type": "function"
+    stateMutability: "nonpayable",
+    type: "function",
   },
   {
-    "inputs": [],
-    "name": "communityFeeLastTimestamp",
-    "outputs": [
+    inputs: [],
+    name: "communityFeeLastTimestamp",
+    outputs: [
       {
-        "internalType": "uint32",
-        "name": "",
-        "type": "uint32"
-      }
+        internalType: "uint32",
+        name: "",
+        type: "uint32",
+      },
     ],
-    "stateMutability": "view",
-    "type": "function"
+    stateMutability: "view",
+    type: "function",
   },
   {
-    "inputs": [],
-    "name": "communityVault",
-    "outputs": [
+    inputs: [],
+    name: "communityVault",
+    outputs: [
       {
-        "internalType": "address",
-        "name": "",
-        "type": "address"
-      }
+        internalType: "address",
+        name: "",
+        type: "address",
+      },
     ],
-    "stateMutability": "view",
-    "type": "function"
+    stateMutability: "view",
+    type: "function",
   },
   {
-    "inputs": [],
-    "name": "factory",
-    "outputs": [
+    inputs: [],
+    name: "factory",
+    outputs: [
       {
-        "internalType": "address",
-        "name": "",
-        "type": "address"
-      }
+        internalType: "address",
+        name: "",
+        type: "address",
+      },
     ],
-    "stateMutability": "view",
-    "type": "function"
+    stateMutability: "view",
+    type: "function",
   },
   {
-    "inputs": [],
-    "name": "fee",
-    "outputs": [
+    inputs: [],
+    name: "fee",
+    outputs: [
       {
-        "internalType": "uint16",
-        "name": "currentFee",
-        "type": "uint16"
-      }
+        internalType: "uint16",
+        name: "currentFee",
+        type: "uint16",
+      },
     ],
-    "stateMutability": "view",
-    "type": "function"
+    stateMutability: "view",
+    type: "function",
   },
   {
-    "inputs": [
+    inputs: [
       {
-        "internalType": "address",
-        "name": "recipient",
-        "type": "address"
+        internalType: "address",
+        name: "recipient",
+        type: "address",
       },
       {
-        "internalType": "uint256",
-        "name": "amount0",
-        "type": "uint256"
+        internalType: "uint256",
+        name: "amount0",
+        type: "uint256",
       },
       {
-        "internalType": "uint256",
-        "name": "amount1",
-        "type": "uint256"
+        internalType: "uint256",
+        name: "amount1",
+        type: "uint256",
       },
       {
-        "internalType": "bytes",
-        "name": "data",
-        "type": "bytes"
-      }
+        internalType: "bytes",
+        name: "data",
+        type: "bytes",
+      },
     ],
-    "name": "flash",
-    "outputs": [],
-    "stateMutability": "nonpayable",
-    "type": "function"
+    name: "flash",
+    outputs: [],
+    stateMutability: "nonpayable",
+    type: "function",
   },
   {
-    "inputs": [],
-    "name": "getCommunityFeePending",
-    "outputs": [
+    inputs: [],
+    name: "getCommunityFeePending",
+    outputs: [
       {
-        "internalType": "uint128",
-        "name": "",
-        "type": "uint128"
+        internalType: "uint128",
+        name: "",
+        type: "uint128",
       },
       {
-        "internalType": "uint128",
-        "name": "",
-        "type": "uint128"
-      }
+        internalType: "uint128",
+        name: "",
+        type: "uint128",
+      },
     ],
-    "stateMutability": "view",
-    "type": "function"
+    stateMutability: "view",
+    type: "function",
   },
   {
-    "inputs": [],
-    "name": "getReserves",
-    "outputs": [
+    inputs: [],
+    name: "getReserves",
+    outputs: [
       {
-        "internalType": "uint128",
-        "name": "",
-        "type": "uint128"
+        internalType: "uint128",
+        name: "",
+        type: "uint128",
       },
       {
-        "internalType": "uint128",
-        "name": "",
-        "type": "uint128"
-      }
+        internalType: "uint128",
+        name: "",
+        type: "uint128",
+      },
     ],
-    "stateMutability": "view",
-    "type": "function"
+    stateMutability: "view",
+    type: "function",
   },
   {
-    "inputs": [],
-    "name": "globalState",
-    "outputs": [
+    inputs: [],
+    name: "globalState",
+    outputs: [
       {
-        "internalType": "uint160",
-        "name": "price",
-        "type": "uint160"
+        internalType: "uint160",
+        name: "price",
+        type: "uint160",
       },
       {
-        "internalType": "int24",
-        "name": "tick",
-        "type": "int24"
+        internalType: "int24",
+        name: "tick",
+        type: "int24",
       },
       {
-        "internalType": "uint16",
-        "name": "fee",
-        "type": "uint16"
+        internalType: "uint16",
+        name: "fee",
+        type: "uint16",
       },
       {
-        "internalType": "uint8",
-        "name": "pluginConfig",
-        "type": "uint8"
+        internalType: "uint8",
+        name: "pluginConfig",
+        type: "uint8",
       },
       {
-        "internalType": "uint16",
-        "name": "communityFee",
-        "type": "uint16"
+        internalType: "uint16",
+        name: "communityFee",
+        type: "uint16",
       },
       {
-        "internalType": "bool",
-        "name": "unlocked",
-        "type": "bool"
-      }
+        internalType: "bool",
+        name: "unlocked",
+        type: "bool",
+      },
     ],
-    "stateMutability": "view",
-    "type": "function"
+    stateMutability: "view",
+    type: "function",
   },
   {
-    "inputs": [
+    inputs: [
       {
-        "internalType": "uint160",
-        "name": "initialPrice",
-        "type": "uint160"
-      }
+        internalType: "uint160",
+        name: "initialPrice",
+        type: "uint160",
+      },
     ],
-    "name": "initialize",
-    "outputs": [],
-    "stateMutability": "nonpayable",
-    "type": "function"
+    name: "initialize",
+    outputs: [],
+    stateMutability: "nonpayable",
+    type: "function",
   },
   {
-    "inputs": [],
-    "name": "liquidity",
-    "outputs": [
+    inputs: [],
+    name: "liquidity",
+    outputs: [
       {
-        "internalType": "uint128",
-        "name": "",
-        "type": "uint128"
-      }
+        internalType: "uint128",
+        name: "",
+        type: "uint128",
+      },
     ],
-    "stateMutability": "view",
-    "type": "function"
+    stateMutability: "view",
+    type: "function",
   },
   {
-    "inputs": [],
-    "name": "maxLiquidityPerTick",
-    "outputs": [
+    inputs: [],
+    name: "maxLiquidityPerTick",
+    outputs: [
       {
-        "internalType": "uint128",
-        "name": "",
-        "type": "uint128"
-      }
+        internalType: "uint128",
+        name: "",
+        type: "uint128",
+      },
     ],
-    "stateMutability": "pure",
-    "type": "function"
+    stateMutability: "pure",
+    type: "function",
   },
   {
-    "inputs": [
+    inputs: [
       {
-        "internalType": "address",
-        "name": "leftoversRecipient",
-        "type": "address"
+        internalType: "address",
+        name: "leftoversRecipient",
+        type: "address",
       },
       {
-        "internalType": "address",
-        "name": "recipient",
-        "type": "address"
+        internalType: "address",
+        name: "recipient",
+        type: "address",
       },
       {
-        "internalType": "int24",
-        "name": "bottomTick",
-        "type": "int24"
+        internalType: "int24",
+        name: "bottomTick",
+        type: "int24",
       },
       {
-        "internalType": "int24",
-        "name": "topTick",
-        "type": "int24"
+        internalType: "int24",
+        name: "topTick",
+        type: "int24",
       },
       {
-        "internalType": "uint128",
-        "name": "liquidityDesired",
-        "type": "uint128"
+        internalType: "uint128",
+        name: "liquidityDesired",
+        type: "uint128",
       },
       {
-        "internalType": "bytes",
-        "name": "data",
-        "type": "bytes"
-      }
+        internalType: "bytes",
+        name: "data",
+        type: "bytes",
+      },
     ],
-    "name": "mint",
-    "outputs": [
+    name: "mint",
+    outputs: [
       {
-        "internalType": "uint256",
-        "name": "amount0",
-        "type": "uint256"
+        internalType: "uint256",
+        name: "amount0",
+        type: "uint256",
       },
       {
-        "internalType": "uint256",
-        "name": "amount1",
-        "type": "uint256"
+        internalType: "uint256",
+        name: "amount1",
+        type: "uint256",
       },
       {
-        "internalType": "uint128",
-        "name": "liquidityActual",
-        "type": "uint128"
-      }
+        internalType: "uint128",
+        name: "liquidityActual",
+        type: "uint128",
+      },
     ],
-    "stateMutability": "nonpayable",
-    "type": "function"
+    stateMutability: "nonpayable",
+    type: "function",
   },
   {
-    "inputs": [],
-    "name": "nextTickGlobal",
-    "outputs": [
+    inputs: [],
+    name: "nextTickGlobal",
+    outputs: [
       {
-        "internalType": "int24",
-        "name": "",
-        "type": "int24"
-      }
+        internalType: "int24",
+        name: "",
+        type: "int24",
+      },
     ],
-    "stateMutability": "view",
-    "type": "function"
+    stateMutability: "view",
+    type: "function",
   },
   {
-    "inputs": [],
-    "name": "plugin",
-    "outputs": [
+    inputs: [],
+    name: "plugin",
+    outputs: [
       {
-        "internalType": "address",
-        "name": "",
-        "type": "address"
-      }
+        internalType: "address",
+        name: "",
+        type: "address",
+      },
     ],
-    "stateMutability": "view",
-    "type": "function"
+    stateMutability: "view",
+    type: "function",
   },
   {
-    "inputs": [
+    inputs: [
       {
-        "internalType": "bytes32",
-        "name": "",
-        "type": "bytes32"
-      }
+        internalType: "bytes32",
+        name: "",
+        type: "bytes32",
+      },
     ],
-    "name": "positions",
-    "outputs": [
+    name: "positions",
+    outputs: [
       {
-        "internalType": "uint256",
-        "name": "liquidity",
-        "type": "uint256"
+        internalType: "uint256",
+        name: "liquidity",
+        type: "uint256",
       },
       {
-        "internalType": "uint256",
-        "name": "innerFeeGrowth0Token",
-        "type": "uint256"
+        internalType: "uint256",
+        name: "innerFeeGrowth0Token",
+        type: "uint256",
       },
       {
-        "internalType": "uint256",
-        "name": "innerFeeGrowth1Token",
-        "type": "uint256"
+        internalType: "uint256",
+        name: "innerFeeGrowth1Token",
+        type: "uint256",
       },
       {
-        "internalType": "uint128",
-        "name": "fees0",
-        "type": "uint128"
+        internalType: "uint128",
+        name: "fees0",
+        type: "uint128",
       },
       {
-        "internalType": "uint128",
-        "name": "fees1",
-        "type": "uint128"
-      }
+        internalType: "uint128",
+        name: "fees1",
+        type: "uint128",
+      },
     ],
-    "stateMutability": "view",
-    "type": "function"
+    stateMutability: "view",
+    type: "function",
   },
   {
-    "inputs": [],
-    "name": "prevTickGlobal",
-    "outputs": [
+    inputs: [],
+    name: "prevTickGlobal",
+    outputs: [
       {
-        "internalType": "int24",
-        "name": "",
-        "type": "int24"
-      }
+        internalType: "int24",
+        name: "",
+        type: "int24",
+      },
     ],
-    "stateMutability": "view",
-    "type": "function"
+    stateMutability: "view",
+    type: "function",
   },
   {
-    "inputs": [
+    inputs: [
       {
-        "internalType": "uint16",
-        "name": "newCommunityFee",
-        "type": "uint16"
-      }
+        internalType: "uint16",
+        name: "newCommunityFee",
+        type: "uint16",
+      },
     ],
-    "name": "setCommunityFee",
-    "outputs": [],
-    "stateMutability": "nonpayable",
-    "type": "function"
+    name: "setCommunityFee",
+    outputs: [],
+    stateMutability: "nonpayable",
+    type: "function",
   },
   {
-    "inputs": [
+    inputs: [
       {
-        "internalType": "uint16",
-        "name": "newFee",
-        "type": "uint16"
-      }
+        internalType: "uint16",
+        name: "newFee",
+        type: "uint16",
+      },
     ],
-    "name": "setFee",
-    "outputs": [],
-    "stateMutability": "nonpayable",
-    "type": "function"
+    name: "setFee",
+    outputs: [],
+    stateMutability: "nonpayable",
+    type: "function",
   },
   {
-    "inputs": [
+    inputs: [
       {
-        "internalType": "address",
-        "name": "newPluginAddress",
-        "type": "address"
-      }
+        internalType: "address",
+        name: "newPluginAddress",
+        type: "address",
+      },
     ],
-    "name": "setPlugin",
-    "outputs": [],
-    "stateMutability": "nonpayable",
-    "type": "function"
+    name: "setPlugin",
+    outputs: [],
+    stateMutability: "nonpayable",
+    type: "function",
   },
   {
-    "inputs": [
+    inputs: [
       {
-        "internalType": "uint8",
-        "name": "newConfig",
-        "type": "uint8"
-      }
+        internalType: "uint8",
+        name: "newConfig",
+        type: "uint8",
+      },
     ],
-    "name": "setPluginConfig",
-    "outputs": [],
-    "stateMutability": "nonpayable",
-    "type": "function"
+    name: "setPluginConfig",
+    outputs: [],
+    stateMutability: "nonpayable",
+    type: "function",
   },
   {
-    "inputs": [
+    inputs: [
       {
-        "internalType": "int24",
-        "name": "newTickSpacing",
-        "type": "int24"
-      }
+        internalType: "int24",
+        name: "newTickSpacing",
+        type: "int24",
+      },
     ],
-    "name": "setTickSpacing",
-    "outputs": [],
-    "stateMutability": "nonpayable",
-    "type": "function"
+    name: "setTickSpacing",
+    outputs: [],
+    stateMutability: "nonpayable",
+    type: "function",
   },
   {
-    "inputs": [
+    inputs: [
       {
-        "internalType": "address",
-        "name": "recipient",
-        "type": "address"
+        internalType: "address",
+        name: "recipient",
+        type: "address",
       },
       {
-        "internalType": "bool",
-        "name": "zeroToOne",
-        "type": "bool"
+        internalType: "bool",
+        name: "zeroToOne",
+        type: "bool",
       },
       {
-        "internalType": "int256",
-        "name": "amountRequired",
-        "type": "int256"
+        internalType: "int256",
+        name: "amountRequired",
+        type: "int256",
       },
       {
-        "internalType": "uint160",
-        "name": "limitSqrtPrice",
-        "type": "uint160"
+        internalType: "uint160",
+        name: "limitSqrtPrice",
+        type: "uint160",
       },
       {
-        "internalType": "bytes",
-        "name": "data",
-        "type": "bytes"
-      }
+        internalType: "bytes",
+        name: "data",
+        type: "bytes",
+      },
     ],
-    "name": "swap",
-    "outputs": [
+    name: "swap",
+    outputs: [
       {
-        "internalType": "int256",
-        "name": "amount0",
-        "type": "int256"
+        internalType: "int256",
+        name: "amount0",
+        type: "int256",
       },
       {
-        "internalType": "int256",
-        "name": "amount1",
-        "type": "int256"
-      }
+        internalType: "int256",
+        name: "amount1",
+        type: "int256",
+      },
     ],
-    "stateMutability": "nonpayable",
-    "type": "function"
+    stateMutability: "nonpayable",
+    type: "function",
   },
   {
-    "inputs": [
+    inputs: [
       {
-        "internalType": "address",
-        "name": "leftoversRecipient",
-        "type": "address"
+        internalType: "address",
+        name: "leftoversRecipient",
+        type: "address",
       },
       {
-        "internalType": "address",
-        "name": "recipient",
-        "type": "address"
+        internalType: "address",
+        name: "recipient",
+        type: "address",
       },
       {
-        "internalType": "bool",
-        "name": "zeroToOne",
-        "type": "bool"
+        internalType: "bool",
+        name: "zeroToOne",
+        type: "bool",
       },
       {
-        "internalType": "int256",
-        "name": "amountToSell",
-        "type": "int256"
+        internalType: "int256",
+        name: "amountToSell",
+        type: "int256",
       },
       {
-        "internalType": "uint160",
-        "name": "limitSqrtPrice",
-        "type": "uint160"
+        internalType: "uint160",
+        name: "limitSqrtPrice",
+        type: "uint160",
       },
       {
-        "internalType": "bytes",
-        "name": "data",
-        "type": "bytes"
-      }
+        internalType: "bytes",
+        name: "data",
+        type: "bytes",
+      },
     ],
-    "name": "swapWithPaymentInAdvance",
-    "outputs": [
+    name: "swapWithPaymentInAdvance",
+    outputs: [
       {
-        "internalType": "int256",
-        "name": "amount0",
-        "type": "int256"
+        internalType: "int256",
+        name: "amount0",
+        type: "int256",
       },
       {
-        "internalType": "int256",
-        "name": "amount1",
-        "type": "int256"
-      }
+        internalType: "int256",
+        name: "amount1",
+        type: "int256",
+      },
     ],
-    "stateMutability": "nonpayable",
-    "type": "function"
+    stateMutability: "nonpayable",
+    type: "function",
   },
   {
-    "inputs": [],
-    "name": "tickSpacing",
-    "outputs": [
+    inputs: [],
+    name: "tickSpacing",
+    outputs: [
       {
-        "internalType": "int24",
-        "name": "",
-        "type": "int24"
-      }
+        internalType: "int24",
+        name: "",
+        type: "int24",
+      },
     ],
-    "stateMutability": "view",
-    "type": "function"
+    stateMutability: "view",
+    type: "function",
   },
   {
-    "inputs": [
+    inputs: [
       {
-        "internalType": "int16",
-        "name": "",
-        "type": "int16"
-      }
+        internalType: "int16",
+        name: "",
+        type: "int16",
+      },
     ],
-    "name": "tickTable",
-    "outputs": [
+    name: "tickTable",
+    outputs: [
       {
-        "internalType": "uint256",
-        "name": "",
-        "type": "uint256"
-      }
+        internalType: "uint256",
+        name: "",
+        type: "uint256",
+      },
     ],
-    "stateMutability": "view",
-    "type": "function"
+    stateMutability: "view",
+    type: "function",
   },
   {
-    "inputs": [
+    inputs: [
       {
-        "internalType": "int24",
-        "name": "",
-        "type": "int24"
-      }
+        internalType: "int24",
+        name: "",
+        type: "int24",
+      },
     ],
-    "name": "ticks",
-    "outputs": [
+    name: "ticks",
+    outputs: [
       {
-        "internalType": "uint256",
-        "name": "liquidityTotal",
-        "type": "uint256"
+        internalType: "uint256",
+        name: "liquidityTotal",
+        type: "uint256",
       },
       {
-        "internalType": "int128",
-        "name": "liquidityDelta",
-        "type": "int128"
+        internalType: "int128",
+        name: "liquidityDelta",
+        type: "int128",
       },
       {
-        "internalType": "int24",
-        "name": "prevTick",
-        "type": "int24"
+        internalType: "int24",
+        name: "prevTick",
+        type: "int24",
       },
       {
-        "internalType": "int24",
-        "name": "nextTick",
-        "type": "int24"
+        internalType: "int24",
+        name: "nextTick",
+        type: "int24",
       },
       {
-        "internalType": "uint256",
-        "name": "outerFeeGrowth0Token",
-        "type": "uint256"
+        internalType: "uint256",
+        name: "outerFeeGrowth0Token",
+        type: "uint256",
       },
       {
-        "internalType": "uint256",
-        "name": "outerFeeGrowth1Token",
-        "type": "uint256"
-      }
+        internalType: "uint256",
+        name: "outerFeeGrowth1Token",
+        type: "uint256",
+      },
     ],
-    "stateMutability": "view",
-    "type": "function"
+    stateMutability: "view",
+    type: "function",
   },
   {
-    "inputs": [],
-    "name": "token0",
-    "outputs": [
+    inputs: [],
+    name: "token0",
+    outputs: [
       {
-        "internalType": "address",
-        "name": "",
-        "type": "address"
-      }
+        internalType: "address",
+        name: "",
+        type: "address",
+      },
     ],
-    "stateMutability": "view",
-    "type": "function"
+    stateMutability: "view",
+    type: "function",
   },
   {
-    "inputs": [],
-    "name": "token1",
-    "outputs": [
+    inputs: [],
+    name: "token1",
+    outputs: [
       {
-        "internalType": "address",
-        "name": "",
-        "type": "address"
-      }
+        internalType: "address",
+        name: "",
+        type: "address",
+      },
     ],
-    "stateMutability": "view",
-    "type": "function"
+    stateMutability: "view",
+    type: "function",
   },
   {
-    "inputs": [],
-    "name": "totalFeeGrowth0Token",
-    "outputs": [
+    inputs: [],
+    name: "totalFeeGrowth0Token",
+    outputs: [
       {
-        "internalType": "uint256",
-        "name": "",
-        "type": "uint256"
-      }
+        internalType: "uint256",
+        name: "",
+        type: "uint256",
+      },
     ],
-    "stateMutability": "view",
-    "type": "function"
+    stateMutability: "view",
+    type: "function",
   },
   {
-    "inputs": [],
-    "name": "totalFeeGrowth1Token",
-    "outputs": [
+    inputs: [],
+    name: "totalFeeGrowth1Token",
+    outputs: [
       {
-        "internalType": "uint256",
-        "name": "",
-        "type": "uint256"
-      }
+        internalType: "uint256",
+        name: "",
+        type: "uint256",
+      },
     ],
-    "stateMutability": "view",
-    "type": "function"
-  }
+    stateMutability: "view",
+    type: "function",
+  },
 ];
 
 // evm/abis/IPancakePair.ts
@@ -2968,23 +3499,23 @@ var pancakePairABI = [
         indexed: true,
         internalType: "address",
         name: "owner",
-        type: "address"
+        type: "address",
       },
       {
         indexed: true,
         internalType: "address",
         name: "spender",
-        type: "address"
+        type: "address",
       },
       {
         indexed: false,
         internalType: "uint256",
         name: "value",
-        type: "uint256"
-      }
+        type: "uint256",
+      },
     ],
     name: "Approval",
-    type: "event"
+    type: "event",
   },
   {
     anonymous: false,
@@ -2993,29 +3524,29 @@ var pancakePairABI = [
         indexed: true,
         internalType: "address",
         name: "sender",
-        type: "address"
+        type: "address",
       },
       {
         indexed: false,
         internalType: "uint256",
         name: "amount0",
-        type: "uint256"
+        type: "uint256",
       },
       {
         indexed: false,
         internalType: "uint256",
         name: "amount1",
-        type: "uint256"
+        type: "uint256",
       },
       {
         indexed: true,
         internalType: "address",
         name: "to",
-        type: "address"
-      }
+        type: "address",
+      },
     ],
     name: "Burn",
-    type: "event"
+    type: "event",
   },
   {
     anonymous: false,
@@ -3024,23 +3555,23 @@ var pancakePairABI = [
         indexed: true,
         internalType: "address",
         name: "sender",
-        type: "address"
+        type: "address",
       },
       {
         indexed: false,
         internalType: "uint256",
         name: "amount0",
-        type: "uint256"
+        type: "uint256",
       },
       {
         indexed: false,
         internalType: "uint256",
         name: "amount1",
-        type: "uint256"
-      }
+        type: "uint256",
+      },
     ],
     name: "Mint",
-    type: "event"
+    type: "event",
   },
   {
     anonymous: false,
@@ -3049,41 +3580,41 @@ var pancakePairABI = [
         indexed: true,
         internalType: "address",
         name: "sender",
-        type: "address"
+        type: "address",
       },
       {
         indexed: false,
         internalType: "uint256",
         name: "amount0In",
-        type: "uint256"
+        type: "uint256",
       },
       {
         indexed: false,
         internalType: "uint256",
         name: "amount1In",
-        type: "uint256"
+        type: "uint256",
       },
       {
         indexed: false,
         internalType: "uint256",
         name: "amount0Out",
-        type: "uint256"
+        type: "uint256",
       },
       {
         indexed: false,
         internalType: "uint256",
         name: "amount1Out",
-        type: "uint256"
+        type: "uint256",
       },
       {
         indexed: true,
         internalType: "address",
         name: "to",
-        type: "address"
-      }
+        type: "address",
+      },
     ],
     name: "Swap",
-    type: "event"
+    type: "event",
   },
   {
     anonymous: false,
@@ -3092,17 +3623,17 @@ var pancakePairABI = [
         indexed: false,
         internalType: "uint112",
         name: "reserve0",
-        type: "uint112"
+        type: "uint112",
       },
       {
         indexed: false,
         internalType: "uint112",
         name: "reserve1",
-        type: "uint112"
-      }
+        type: "uint112",
+      },
     ],
     name: "Sync",
-    type: "event"
+    type: "event",
   },
   {
     anonymous: false,
@@ -3111,23 +3642,23 @@ var pancakePairABI = [
         indexed: true,
         internalType: "address",
         name: "from",
-        type: "address"
+        type: "address",
       },
       {
         indexed: true,
         internalType: "address",
         name: "to",
-        type: "address"
+        type: "address",
       },
       {
         indexed: false,
         internalType: "uint256",
         name: "value",
-        type: "uint256"
-      }
+        type: "uint256",
+      },
     ],
     name: "Transfer",
-    type: "event"
+    type: "event",
   },
   {
     inputs: [],
@@ -3136,11 +3667,11 @@ var pancakePairABI = [
       {
         internalType: "bytes32",
         name: "",
-        type: "bytes32"
-      }
+        type: "bytes32",
+      },
     ],
     stateMutability: "view",
-    type: "function"
+    type: "function",
   },
   {
     inputs: [],
@@ -3149,11 +3680,11 @@ var pancakePairABI = [
       {
         internalType: "uint256",
         name: "",
-        type: "uint256"
-      }
+        type: "uint256",
+      },
     ],
     stateMutability: "pure",
-    type: "function"
+    type: "function",
   },
   {
     inputs: [],
@@ -3162,102 +3693,102 @@ var pancakePairABI = [
       {
         internalType: "bytes32",
         name: "",
-        type: "bytes32"
-      }
+        type: "bytes32",
+      },
     ],
     stateMutability: "pure",
-    type: "function"
+    type: "function",
   },
   {
     inputs: [
       {
         internalType: "address",
         name: "owner",
-        type: "address"
+        type: "address",
       },
       {
         internalType: "address",
         name: "spender",
-        type: "address"
-      }
+        type: "address",
+      },
     ],
     name: "allowance",
     outputs: [
       {
         internalType: "uint256",
         name: "",
-        type: "uint256"
-      }
+        type: "uint256",
+      },
     ],
     stateMutability: "view",
-    type: "function"
+    type: "function",
   },
   {
     inputs: [
       {
         internalType: "address",
         name: "spender",
-        type: "address"
+        type: "address",
       },
       {
         internalType: "uint256",
         name: "value",
-        type: "uint256"
-      }
+        type: "uint256",
+      },
     ],
     name: "approve",
     outputs: [
       {
         internalType: "bool",
         name: "",
-        type: "bool"
-      }
+        type: "bool",
+      },
     ],
     stateMutability: "nonpayable",
-    type: "function"
+    type: "function",
   },
   {
     inputs: [
       {
         internalType: "address",
         name: "owner",
-        type: "address"
-      }
+        type: "address",
+      },
     ],
     name: "balanceOf",
     outputs: [
       {
         internalType: "uint256",
         name: "",
-        type: "uint256"
-      }
+        type: "uint256",
+      },
     ],
     stateMutability: "view",
-    type: "function"
+    type: "function",
   },
   {
     inputs: [
       {
         internalType: "address",
         name: "to",
-        type: "address"
-      }
+        type: "address",
+      },
     ],
     name: "burn",
     outputs: [
       {
         internalType: "uint256",
         name: "amount0",
-        type: "uint256"
+        type: "uint256",
       },
       {
         internalType: "uint256",
         name: "amount1",
-        type: "uint256"
-      }
+        type: "uint256",
+      },
     ],
     stateMutability: "nonpayable",
-    type: "function"
+    type: "function",
   },
   {
     inputs: [],
@@ -3266,11 +3797,11 @@ var pancakePairABI = [
       {
         internalType: "uint8",
         name: "",
-        type: "uint8"
-      }
+        type: "uint8",
+      },
     ],
     stateMutability: "pure",
-    type: "function"
+    type: "function",
   },
   {
     inputs: [],
@@ -3279,11 +3810,11 @@ var pancakePairABI = [
       {
         internalType: "address",
         name: "",
-        type: "address"
-      }
+        type: "address",
+      },
     ],
     stateMutability: "view",
-    type: "function"
+    type: "function",
   },
   {
     inputs: [],
@@ -3292,39 +3823,39 @@ var pancakePairABI = [
       {
         internalType: "uint112",
         name: "reserve0",
-        type: "uint112"
+        type: "uint112",
       },
       {
         internalType: "uint112",
         name: "reserve1",
-        type: "uint112"
+        type: "uint112",
       },
       {
         internalType: "uint32",
         name: "blockTimestampLast",
-        type: "uint32"
-      }
+        type: "uint32",
+      },
     ],
     stateMutability: "view",
-    type: "function"
+    type: "function",
   },
   {
     inputs: [
       {
         internalType: "address",
         name: "",
-        type: "address"
+        type: "address",
       },
       {
         internalType: "address",
         name: "",
-        type: "address"
-      }
+        type: "address",
+      },
     ],
     name: "initialize",
     outputs: [],
     stateMutability: "nonpayable",
-    type: "function"
+    type: "function",
   },
   {
     inputs: [],
@@ -3333,30 +3864,30 @@ var pancakePairABI = [
       {
         internalType: "uint256",
         name: "",
-        type: "uint256"
-      }
+        type: "uint256",
+      },
     ],
     stateMutability: "view",
-    type: "function"
+    type: "function",
   },
   {
     inputs: [
       {
         internalType: "address",
         name: "to",
-        type: "address"
-      }
+        type: "address",
+      },
     ],
     name: "mint",
     outputs: [
       {
         internalType: "uint256",
         name: "liquidity",
-        type: "uint256"
-      }
+        type: "uint256",
+      },
     ],
     stateMutability: "nonpayable",
-    type: "function"
+    type: "function",
   },
   {
     inputs: [],
@@ -3365,73 +3896,73 @@ var pancakePairABI = [
       {
         internalType: "string",
         name: "",
-        type: "string"
-      }
+        type: "string",
+      },
     ],
     stateMutability: "pure",
-    type: "function"
+    type: "function",
   },
   {
     inputs: [
       {
         internalType: "address",
         name: "owner",
-        type: "address"
-      }
+        type: "address",
+      },
     ],
     name: "nonces",
     outputs: [
       {
         internalType: "uint256",
         name: "",
-        type: "uint256"
-      }
+        type: "uint256",
+      },
     ],
     stateMutability: "view",
-    type: "function"
+    type: "function",
   },
   {
     inputs: [
       {
         internalType: "address",
         name: "owner",
-        type: "address"
+        type: "address",
       },
       {
         internalType: "address",
         name: "spender",
-        type: "address"
+        type: "address",
       },
       {
         internalType: "uint256",
         name: "value",
-        type: "uint256"
+        type: "uint256",
       },
       {
         internalType: "uint256",
         name: "deadline",
-        type: "uint256"
+        type: "uint256",
       },
       {
         internalType: "uint8",
         name: "v",
-        type: "uint8"
+        type: "uint8",
       },
       {
         internalType: "bytes32",
         name: "r",
-        type: "bytes32"
+        type: "bytes32",
       },
       {
         internalType: "bytes32",
         name: "s",
-        type: "bytes32"
-      }
+        type: "bytes32",
+      },
     ],
     name: "permit",
     outputs: [],
     stateMutability: "nonpayable",
-    type: "function"
+    type: "function",
   },
   {
     inputs: [],
@@ -3440,11 +3971,11 @@ var pancakePairABI = [
       {
         internalType: "uint256",
         name: "",
-        type: "uint256"
-      }
+        type: "uint256",
+      },
     ],
     stateMutability: "view",
-    type: "function"
+    type: "function",
   },
   {
     inputs: [],
@@ -3453,52 +3984,52 @@ var pancakePairABI = [
       {
         internalType: "uint256",
         name: "",
-        type: "uint256"
-      }
+        type: "uint256",
+      },
     ],
     stateMutability: "view",
-    type: "function"
+    type: "function",
   },
   {
     inputs: [
       {
         internalType: "address",
         name: "to",
-        type: "address"
-      }
+        type: "address",
+      },
     ],
     name: "skim",
     outputs: [],
     stateMutability: "nonpayable",
-    type: "function"
+    type: "function",
   },
   {
     inputs: [
       {
         internalType: "uint256",
         name: "amount0Out",
-        type: "uint256"
+        type: "uint256",
       },
       {
         internalType: "uint256",
         name: "amount1Out",
-        type: "uint256"
+        type: "uint256",
       },
       {
         internalType: "address",
         name: "to",
-        type: "address"
+        type: "address",
       },
       {
         internalType: "bytes",
         name: "data",
-        type: "bytes"
-      }
+        type: "bytes",
+      },
     ],
     name: "swap",
     outputs: [],
     stateMutability: "nonpayable",
-    type: "function"
+    type: "function",
   },
   {
     inputs: [],
@@ -3507,11 +4038,11 @@ var pancakePairABI = [
       {
         internalType: "string",
         name: "",
-        type: "string"
-      }
+        type: "string",
+      },
     ],
     stateMutability: "pure",
-    type: "function"
+    type: "function",
   },
   {
     inputs: [],
@@ -3520,18 +4051,18 @@ var pancakePairABI = [
       {
         internalType: "bool",
         name: "",
-        type: "bool"
-      }
+        type: "bool",
+      },
     ],
     stateMutability: "pure",
-    type: "function"
+    type: "function",
   },
   {
     inputs: [],
     name: "sync",
     outputs: [],
     stateMutability: "nonpayable",
-    type: "function"
+    type: "function",
   },
   {
     inputs: [],
@@ -3540,11 +4071,11 @@ var pancakePairABI = [
       {
         internalType: "address",
         name: "",
-        type: "address"
-      }
+        type: "address",
+      },
     ],
     stateMutability: "view",
-    type: "function"
+    type: "function",
   },
   {
     inputs: [],
@@ -3553,11 +4084,11 @@ var pancakePairABI = [
       {
         internalType: "address",
         name: "",
-        type: "address"
-      }
+        type: "address",
+      },
     ],
     stateMutability: "view",
-    type: "function"
+    type: "function",
   },
   {
     inputs: [],
@@ -3566,65 +4097,65 @@ var pancakePairABI = [
       {
         internalType: "uint256",
         name: "",
-        type: "uint256"
-      }
+        type: "uint256",
+      },
     ],
     stateMutability: "view",
-    type: "function"
+    type: "function",
   },
   {
     inputs: [
       {
         internalType: "address",
         name: "to",
-        type: "address"
+        type: "address",
       },
       {
         internalType: "uint256",
         name: "value",
-        type: "uint256"
-      }
+        type: "uint256",
+      },
     ],
     name: "transfer",
     outputs: [
       {
         internalType: "bool",
         name: "",
-        type: "bool"
-      }
+        type: "bool",
+      },
     ],
     stateMutability: "nonpayable",
-    type: "function"
+    type: "function",
   },
   {
     inputs: [
       {
         internalType: "address",
         name: "from",
-        type: "address"
+        type: "address",
       },
       {
         internalType: "address",
         name: "to",
-        type: "address"
+        type: "address",
       },
       {
         internalType: "uint256",
         name: "value",
-        type: "uint256"
-      }
+        type: "uint256",
+      },
     ],
     name: "transferFrom",
     outputs: [
       {
         internalType: "bool",
         name: "",
-        type: "bool"
-      }
+        type: "bool",
+      },
     ],
     stateMutability: "nonpayable",
-    type: "function"
-  }
+    type: "function",
+  },
 ];
 
 // evm/v3-router/providers/poolProviders/onChainPoolProviders.ts
@@ -3638,80 +4169,91 @@ var getV2PoolsOnChain = createOnChainPoolFactory({
         false
       ),
       currencyA,
-      currencyB
+      currencyB,
     },
     {
       address: computeV2PoolAddress(currencyA.wrapped, currencyB.wrapped, true),
       currencyA,
-      currencyB
-    }
+      currencyB,
+    },
   ],
   buildPoolInfoCalls: (address) => [
     {
       address,
       functionName: "getReserves",
-      args: []
+      args: [],
     },
     {
       address,
       functionName: "stable",
-      args: []
-    }
+      args: [],
+    },
   ],
   buildPool: ({ currencyA, currencyB }, [reserves, isStable]) => {
     if (!reserves) {
       return null;
     }
     const [reserve0, reserve1] = reserves;
-    const [token0, token1] = currencyA.wrapped.sortsBefore(currencyB.wrapped) ? [currencyA, currencyB] : [currencyB, currencyA];
+    const [token0, token1] = currencyA.wrapped.sortsBefore(currencyB.wrapped)
+      ? [currencyA, currencyB]
+      : [currencyB, currencyA];
     return {
       type: isStable ? 2 /* STABLE */ : 0 /* V2 */,
       reserve0: CurrencyAmount.fromRawAmount(token0, reserve0.toString()),
-      reserve1: CurrencyAmount.fromRawAmount(token1, reserve1.toString())
+      reserve1: CurrencyAmount.fromRawAmount(token1, reserve1.toString()),
     };
-  }
+  },
 });
 var getV3PoolsWithoutTicksOnChain = createOnChainPoolFactory({
   abi: algebraPoolABI,
   getPossiblePoolMetas: ([currencyA, currencyB]) => {
     const chainId = currencyA.chainId;
-    return [CUSTOM_POOL_BASE[chainId], CUSTOM_POOL_DEPLOYER_ALL_INCLUSIVE[chainId]].map(
-      (deployer) => ({
-        address: deployer === CUSTOM_POOL_BASE[chainId] ? computeV3PoolAddress({
-          poolDeployer: ALGEBRA_POOL_DEPLOYER[chainId],
-          tokenA: currencyA.wrapped,
-          tokenB: currencyB.wrapped,
-          initCodeHashManualOverride: POOL_INIT_CODE_HASH[chainId]
-        }) : computeV3CustomPoolAddress({
-          mainPoolDeployer: ALGEBRA_POOL_DEPLOYER[chainId],
-          customPoolDeployer: deployer,
-          tokenA: currencyA.wrapped,
-          tokenB: currencyB.wrapped,
-          initCodeHashManualOverride: POOL_INIT_CODE_HASH[chainId]
-        }),
-        currencyA,
-        currencyB,
-        fee: 100,
-        deployer
-      })
-    );
+    return [
+      CUSTOM_POOL_BASE[chainId],
+      CUSTOM_POOL_DEPLOYER_ALL_INCLUSIVE[chainId],
+    ].map((deployer) => ({
+      address:
+        deployer === CUSTOM_POOL_BASE[chainId]
+          ? computeV3PoolAddress({
+              poolDeployer: ALGEBRA_POOL_DEPLOYER[chainId],
+              tokenA: currencyA.wrapped,
+              tokenB: currencyB.wrapped,
+              initCodeHashManualOverride: POOL_INIT_CODE_HASH[chainId],
+            })
+          : computeV3CustomPoolAddress({
+              mainPoolDeployer: ALGEBRA_POOL_DEPLOYER[chainId],
+              customPoolDeployer: deployer,
+              tokenA: currencyA.wrapped,
+              tokenB: currencyB.wrapped,
+              initCodeHashManualOverride: POOL_INIT_CODE_HASH[chainId],
+            }),
+      currencyA,
+      currencyB,
+      fee: 100,
+      deployer,
+    }));
   },
   buildPoolInfoCalls: (address) => [
     {
       address,
-      functionName: "liquidity"
+      functionName: "liquidity",
     },
     {
       address,
-      functionName: "globalState"
-    }
+      functionName: "globalState",
+    },
   ],
-  buildPool: ({ currencyA, currencyB, address, deployer }, [liquidity, globalState]) => {
+  buildPool: (
+    { currencyA, currencyB, address, deployer },
+    [liquidity, globalState]
+  ) => {
     if (!globalState) {
       return null;
     }
     const [sqrtPriceX96, tick, fee] = globalState;
-    const [token0, token1] = currencyA.wrapped.sortsBefore(currencyB.wrapped) ? [currencyA, currencyB] : [currencyB, currencyA];
+    const [token0, token1] = currencyA.wrapped.sortsBefore(currencyB.wrapped)
+      ? [currencyA, currencyB]
+      : [currencyB, currencyA];
     const [token0ProtocolFee, token1ProtocolFee] = parseProtocolFees(0);
     return {
       type: 1 /* V3 */,
@@ -3724,15 +4266,15 @@ var getV3PoolsWithoutTicksOnChain = createOnChainPoolFactory({
       address,
       token0ProtocolFee,
       token1ProtocolFee,
-      deployer
+      deployer,
     };
-  }
+  },
 });
 function createOnChainPoolFactory({
   abi,
   getPossiblePoolMetas,
   buildPoolInfoCalls,
-  buildPool
+  buildPool,
 }) {
   return async function poolFactory(pairs, provider, blockNumber) {
     if (!provider) {
@@ -3774,10 +4316,10 @@ function createOnChainPoolFactory({
         abi,
         address: call2.address,
         functionName: call2.functionName,
-        args: call2.args
+        args: call2.args,
       })),
       allowFailure: true,
-      blockNumber: blockNumber ? BigInt(Number(BigInt(blockNumber))) : void 0
+      blockNumber: blockNumber ? BigInt(Number(BigInt(blockNumber))) : void 0,
     });
     const pools = [];
     for (let i = 0; i < poolMetas.length; i += 1) {
@@ -3811,14 +4353,23 @@ function mergePoolSelectorConfig(baseConfig, customConfig) {
 }
 
 // evm/v3-router/utils/getPoolSelectorConfig.ts
-function poolSelectorConfigFactory(poolSelecorConfigMap, tokenPoolSelectorConfigMap) {
+function poolSelectorConfigFactory(
+  poolSelecorConfigMap,
+  tokenPoolSelectorConfigMap
+) {
   return function getPoolSelectorConfig(currencyA, currencyB) {
     const chainId = currencyA?.chainId;
     if (!chainId || !poolSelecorConfigMap[chainId]) {
       return DEFAULT_POOL_SELECTOR_CONFIG;
     }
-    const additionalConfigA = tokenPoolSelectorConfigMap[chainId]?.[currencyA?.wrapped?.address || "0x"];
-    const additionalConfigB = tokenPoolSelectorConfigMap[chainId]?.[currencyB?.wrapped?.address || "0x"];
+    const additionalConfigA =
+      tokenPoolSelectorConfigMap[chainId]?.[
+        currencyA?.wrapped?.address || "0x"
+      ];
+    const additionalConfigB =
+      tokenPoolSelectorConfigMap[chainId]?.[
+        currencyB?.wrapped?.address || "0x"
+      ];
     return mergePoolSelectorConfig(
       mergePoolSelectorConfig(poolSelecorConfigMap[chainId], additionalConfigA),
       additionalConfigB
@@ -3835,12 +4386,12 @@ var getV2PoolSelectorConfig = poolSelectorConfigFactory(
 );
 
 // evm/v3-router/providers/poolProviders/poolTvlSelectors.ts
-var sortByTvl = (a, b) => a.tvlUSD >= b.tvlUSD ? -1 : 1;
+var sortByTvl = (a, b) => (a.tvlUSD >= b.tvlUSD ? -1 : 1);
 function poolSelectorFactory({
   getPoolSelectorConfig,
   getToken0,
   getToken1,
-  getPoolAddress: getPoolAddress2
+  getPoolAddress: getPoolAddress2,
 }) {
   return function tvlSelector(currencyA, currencyB, unorderedPoolsWithTvl) {
     const POOL_SELECTION_CONFIG = getPoolSelectorConfig(currencyA, currencyB);
@@ -3856,69 +4407,146 @@ function poolSelectorFactory({
         poolSet.add(getPoolAddress2(pool));
       }
     };
-    const topByBaseWithTokenIn = baseTokens.map((token) => {
-      return poolsFromSubgraph.filter((subgraphPool) => {
-        return getToken0(subgraphPool).wrapped.equals(token) && getToken1(subgraphPool).wrapped.equals(currencyA.wrapped) || getToken1(subgraphPool).wrapped.equals(token) && getToken0(subgraphPool).wrapped.equals(currencyA.wrapped);
-      }).sort(sortByTvl).slice(0, POOL_SELECTION_CONFIG.topNWithEachBaseToken);
-    }).reduce((acc, cur) => [...acc, ...cur], []).sort(sortByTvl).slice(0, POOL_SELECTION_CONFIG.topNWithBaseToken);
+    const topByBaseWithTokenIn = baseTokens
+      .map((token) => {
+        return poolsFromSubgraph
+          .filter((subgraphPool) => {
+            return (
+              (getToken0(subgraphPool).wrapped.equals(token) &&
+                getToken1(subgraphPool).wrapped.equals(currencyA.wrapped)) ||
+              (getToken1(subgraphPool).wrapped.equals(token) &&
+                getToken0(subgraphPool).wrapped.equals(currencyA.wrapped))
+            );
+          })
+          .sort(sortByTvl)
+          .slice(0, POOL_SELECTION_CONFIG.topNWithEachBaseToken);
+      })
+      .reduce((acc, cur) => [...acc, ...cur], [])
+      .sort(sortByTvl)
+      .slice(0, POOL_SELECTION_CONFIG.topNWithBaseToken);
     addToPoolSet(topByBaseWithTokenIn);
-    const topByBaseWithTokenOut = baseTokens.map((token) => {
-      return poolsFromSubgraph.filter((subgraphPool) => {
-        if (poolSet.has(getPoolAddress2(subgraphPool))) {
-          return false;
-        }
-        return getToken0(subgraphPool).wrapped.equals(token) && getToken1(subgraphPool).wrapped.equals(currencyB.wrapped) || getToken1(subgraphPool).wrapped.equals(token) && getToken0(subgraphPool).wrapped.equals(currencyB.wrapped);
-      }).sort(sortByTvl).slice(0, POOL_SELECTION_CONFIG.topNWithEachBaseToken);
-    }).reduce((acc, cur) => [...acc, ...cur], []).sort(sortByTvl).slice(0, POOL_SELECTION_CONFIG.topNWithBaseToken);
+    const topByBaseWithTokenOut = baseTokens
+      .map((token) => {
+        return poolsFromSubgraph
+          .filter((subgraphPool) => {
+            if (poolSet.has(getPoolAddress2(subgraphPool))) {
+              return false;
+            }
+            return (
+              (getToken0(subgraphPool).wrapped.equals(token) &&
+                getToken1(subgraphPool).wrapped.equals(currencyB.wrapped)) ||
+              (getToken1(subgraphPool).wrapped.equals(token) &&
+                getToken0(subgraphPool).wrapped.equals(currencyB.wrapped))
+            );
+          })
+          .sort(sortByTvl)
+          .slice(0, POOL_SELECTION_CONFIG.topNWithEachBaseToken);
+      })
+      .reduce((acc, cur) => [...acc, ...cur], [])
+      .sort(sortByTvl)
+      .slice(0, POOL_SELECTION_CONFIG.topNWithBaseToken);
     addToPoolSet(topByBaseWithTokenOut);
-    const top2DirectPools = poolsFromSubgraph.filter((subgraphPool) => {
-      if (poolSet.has(getPoolAddress2(subgraphPool))) {
-        return false;
-      }
-      return getToken0(subgraphPool).wrapped.equals(currencyA.wrapped) && getToken1(subgraphPool).wrapped.equals(currencyB.wrapped) || getToken1(subgraphPool).wrapped.equals(currencyA.wrapped) && getToken0(subgraphPool).wrapped.equals(currencyB.wrapped);
-    }).slice(0, POOL_SELECTION_CONFIG.topNDirectSwaps);
-    addToPoolSet(top2DirectPools);
-    const nativeToken = baseSepoliaTokens.weth;
-    const top2EthBaseTokenPool = nativeToken ? poolsFromSubgraph.filter((subgraphPool) => {
-      if (poolSet.has(getPoolAddress2(subgraphPool))) {
-        return false;
-      }
-      return getToken0(subgraphPool).wrapped.equals(nativeToken) && getToken1(subgraphPool).wrapped.equals(currencyA.wrapped) || getToken1(subgraphPool).wrapped.equals(nativeToken) && getToken0(subgraphPool).wrapped.equals(currencyA.wrapped);
-    }).slice(0, 1) : [];
-    addToPoolSet(top2EthBaseTokenPool);
-    const top2EthQuoteTokenPool = nativeToken ? poolsFromSubgraph.filter((subgraphPool) => {
-      if (poolSet.has(getPoolAddress2(subgraphPool))) {
-        return false;
-      }
-      return getToken0(subgraphPool).wrapped.equals(nativeToken) && getToken1(subgraphPool).wrapped.equals(currencyB.wrapped) || getToken1(subgraphPool).wrapped.equals(nativeToken) && getToken0(subgraphPool).wrapped.equals(currencyB.wrapped);
-    }).slice(0, 1) : [];
-    addToPoolSet(top2EthQuoteTokenPool);
-    const topByTVL = poolsFromSubgraph.slice(0, POOL_SELECTION_CONFIG.topN).filter((pool) => !poolSet.has(getPoolAddress2(pool)));
-    addToPoolSet(topByTVL);
-    const topByTVLUsingTokenBase = poolsFromSubgraph.filter((subgraphPool) => {
-      if (poolSet.has(getPoolAddress2(subgraphPool))) {
-        return false;
-      }
-      return getToken0(subgraphPool).wrapped.equals(currencyA.wrapped) || getToken1(subgraphPool).wrapped.equals(currencyA.wrapped);
-    }).slice(0, POOL_SELECTION_CONFIG.topNTokenInOut);
-    addToPoolSet(topByTVLUsingTokenBase);
-    const topByTVLUsingTokenQuote = poolsFromSubgraph.filter((subgraphPool) => {
-      if (poolSet.has(getPoolAddress2(subgraphPool))) {
-        return false;
-      }
-      return getToken0(subgraphPool).wrapped.equals(currencyB.wrapped) || getToken1(subgraphPool).wrapped.equals(currencyB.wrapped);
-    }).slice(0, POOL_SELECTION_CONFIG.topNTokenInOut);
-    addToPoolSet(topByTVLUsingTokenQuote);
-    const getTopByTVLUsingTokenSecondHops = (base, tokenToCompare) => base.map((subgraphPool) => {
-      return getToken0(subgraphPool).wrapped.equals(tokenToCompare.wrapped) ? getToken1(subgraphPool) : getToken0(subgraphPool);
-    }).map((secondHopToken) => {
-      return poolsFromSubgraph.filter((subgraphPool) => {
+    const top2DirectPools = poolsFromSubgraph
+      .filter((subgraphPool) => {
         if (poolSet.has(getPoolAddress2(subgraphPool))) {
           return false;
         }
-        return getToken0(subgraphPool).wrapped.equals(secondHopToken.wrapped) || getToken1(subgraphPool).wrapped.equals(secondHopToken.wrapped);
-      });
-    }).reduce((acc, cur) => [...acc, ...cur], []).reduce((acc, cur) => acc.some((p) => p === cur) ? acc : [...acc, cur], []).sort(sortByTvl).slice(0, POOL_SELECTION_CONFIG.topNSecondHop);
+        return (
+          (getToken0(subgraphPool).wrapped.equals(currencyA.wrapped) &&
+            getToken1(subgraphPool).wrapped.equals(currencyB.wrapped)) ||
+          (getToken1(subgraphPool).wrapped.equals(currencyA.wrapped) &&
+            getToken0(subgraphPool).wrapped.equals(currencyB.wrapped))
+        );
+      })
+      .slice(0, POOL_SELECTION_CONFIG.topNDirectSwaps);
+    addToPoolSet(top2DirectPools);
+    // const nativeToken = baseSepoliaTokens.weth;
+    const nativeToken = pulsechainTestnetTokens.wpls;
+    const top2EthBaseTokenPool = nativeToken
+      ? poolsFromSubgraph
+          .filter((subgraphPool) => {
+            if (poolSet.has(getPoolAddress2(subgraphPool))) {
+              return false;
+            }
+            return (
+              (getToken0(subgraphPool).wrapped.equals(nativeToken) &&
+                getToken1(subgraphPool).wrapped.equals(currencyA.wrapped)) ||
+              (getToken1(subgraphPool).wrapped.equals(nativeToken) &&
+                getToken0(subgraphPool).wrapped.equals(currencyA.wrapped))
+            );
+          })
+          .slice(0, 1)
+      : [];
+    addToPoolSet(top2EthBaseTokenPool);
+    const top2EthQuoteTokenPool = nativeToken
+      ? poolsFromSubgraph
+          .filter((subgraphPool) => {
+            if (poolSet.has(getPoolAddress2(subgraphPool))) {
+              return false;
+            }
+            return (
+              (getToken0(subgraphPool).wrapped.equals(nativeToken) &&
+                getToken1(subgraphPool).wrapped.equals(currencyB.wrapped)) ||
+              (getToken1(subgraphPool).wrapped.equals(nativeToken) &&
+                getToken0(subgraphPool).wrapped.equals(currencyB.wrapped))
+            );
+          })
+          .slice(0, 1)
+      : [];
+    addToPoolSet(top2EthQuoteTokenPool);
+    const topByTVL = poolsFromSubgraph
+      .slice(0, POOL_SELECTION_CONFIG.topN)
+      .filter((pool) => !poolSet.has(getPoolAddress2(pool)));
+    addToPoolSet(topByTVL);
+    const topByTVLUsingTokenBase = poolsFromSubgraph
+      .filter((subgraphPool) => {
+        if (poolSet.has(getPoolAddress2(subgraphPool))) {
+          return false;
+        }
+        return (
+          getToken0(subgraphPool).wrapped.equals(currencyA.wrapped) ||
+          getToken1(subgraphPool).wrapped.equals(currencyA.wrapped)
+        );
+      })
+      .slice(0, POOL_SELECTION_CONFIG.topNTokenInOut);
+    addToPoolSet(topByTVLUsingTokenBase);
+    const topByTVLUsingTokenQuote = poolsFromSubgraph
+      .filter((subgraphPool) => {
+        if (poolSet.has(getPoolAddress2(subgraphPool))) {
+          return false;
+        }
+        return (
+          getToken0(subgraphPool).wrapped.equals(currencyB.wrapped) ||
+          getToken1(subgraphPool).wrapped.equals(currencyB.wrapped)
+        );
+      })
+      .slice(0, POOL_SELECTION_CONFIG.topNTokenInOut);
+    addToPoolSet(topByTVLUsingTokenQuote);
+    const getTopByTVLUsingTokenSecondHops = (base, tokenToCompare) =>
+      base
+        .map((subgraphPool) => {
+          return getToken0(subgraphPool).wrapped.equals(tokenToCompare.wrapped)
+            ? getToken1(subgraphPool)
+            : getToken0(subgraphPool);
+        })
+        .map((secondHopToken) => {
+          return poolsFromSubgraph.filter((subgraphPool) => {
+            if (poolSet.has(getPoolAddress2(subgraphPool))) {
+              return false;
+            }
+            return (
+              getToken0(subgraphPool).wrapped.equals(secondHopToken.wrapped) ||
+              getToken1(subgraphPool).wrapped.equals(secondHopToken.wrapped)
+            );
+          });
+        })
+        .reduce((acc, cur) => [...acc, ...cur], [])
+        .reduce(
+          (acc, cur) => (acc.some((p) => p === cur) ? acc : [...acc, cur]),
+          []
+        )
+        .sort(sortByTvl)
+        .slice(0, POOL_SELECTION_CONFIG.topNSecondHop);
     const topByTVLUsingTokenInSecondHops = getTopByTVLUsingTokenSecondHops(
       [...topByTVLUsingTokenBase, ...topByBaseWithTokenIn],
       currencyA
@@ -3939,7 +4567,7 @@ function poolSelectorFactory({
       ...topByTVLUsingTokenBase,
       ...topByTVLUsingTokenQuote,
       ...topByTVLUsingTokenInSecondHops,
-      ...topByTVLUsingTokenOutSecondHops
+      ...topByTVLUsingTokenOutSecondHops,
     ];
     return pools.map(({ tvlUSD, ...rest }) => rest);
   };
@@ -3948,23 +4576,20 @@ var v3PoolTvlSelector = poolSelectorFactory({
   getPoolSelectorConfig: getV3PoolSelectorConfig,
   getToken0: (p) => p.token0,
   getToken1: (p) => p.token1,
-  getPoolAddress: (p) => p.address
+  getPoolAddress: (p) => p.address,
 });
 var v2PoolTvlSelector = poolSelectorFactory({
   getPoolSelectorConfig: getV2PoolSelectorConfig,
   getToken0: (p) => p.reserve0.currency,
   getToken1: (p) => p.reserve1.currency,
-  getPoolAddress: (p) => getPoolAddress(p) || "0x"
+  getPoolAddress: (p) => getPoolAddress(p) || "0x",
 });
 function subgraphPoolProviderFactory({
   id,
   getPoolMetas,
-  getPoolsFromSubgraph
+  getPoolsFromSubgraph,
 }) {
-  return async function subgraphPoolProvider({
-    provider,
-    pairs
-  }) {
+  return async function subgraphPoolProvider({ provider, pairs }) {
     if (!provider) {
       throw new Error("No valid subgraph data provider");
     }
@@ -3982,7 +4607,7 @@ function subgraphPoolProviderFactory({
     for (const pair of pairs) {
       for (const deployer of [
         CUSTOM_POOL_BASE[chainId],
-        CUSTOM_POOL_DEPLOYER_ALL_INCLUSIVE[chainId]
+        CUSTOM_POOL_DEPLOYER_ALL_INCLUSIVE[chainId],
       ]) {
         const metas = getPoolMetas(pair, deployer[chainId]);
         for (const meta of metas) {
@@ -3993,8 +4618,9 @@ function subgraphPoolProviderFactory({
     const addresses = Array.from(metaMap.keys());
     const pools = await getPoolsFromSubgraph({
       addresses,
-      getPoolMetaByAddress: (address) => metaMap.get(address.toLocaleLowerCase()) ?? null,
-      client
+      getPoolMetaByAddress: (address) =>
+        metaMap.get(address.toLocaleLowerCase()) ?? null,
+      client,
     });
     metric(`SUBGRAPH_POOLS_END(${id})`, pools);
     return pools.filter((p) => !!p);
@@ -4004,22 +4630,25 @@ var getV3PoolMeta = memoize(
   ([currencyA, currencyB, deployer, feeAmount]) => {
     const chainId = currencyA.chainId;
     return {
-      address: deployer === CUSTOM_POOL_BASE[chainId] ? computePoolAddress({
-        tokenA: currencyA.wrapped,
-        tokenB: currencyB.wrapped,
-        poolDeployer: ALGEBRA_POOL_DEPLOYER[chainId],
-        initCodeHashManualOverride: POOL_INIT_CODE_HASH[chainId]
-      }) : computeCustomPoolAddress({
-        tokenA: currencyA.wrapped,
-        tokenB: currencyB.wrapped,
-        customPoolDeployer: deployer,
-        mainPoolDeployer: ALGEBRA_POOL_DEPLOYER[chainId],
-        initCodeHashManualOverride: POOL_INIT_CODE_HASH[chainId]
-      }),
+      address:
+        deployer === CUSTOM_POOL_BASE[chainId]
+          ? computePoolAddress({
+              tokenA: currencyA.wrapped,
+              tokenB: currencyB.wrapped,
+              poolDeployer: ALGEBRA_POOL_DEPLOYER[chainId],
+              initCodeHashManualOverride: POOL_INIT_CODE_HASH[chainId],
+            })
+          : computeCustomPoolAddress({
+              tokenA: currencyA.wrapped,
+              tokenB: currencyB.wrapped,
+              customPoolDeployer: deployer,
+              mainPoolDeployer: ALGEBRA_POOL_DEPLOYER[chainId],
+              initCodeHashManualOverride: POOL_INIT_CODE_HASH[chainId],
+            }),
       currencyA,
       currencyB,
       fee: feeAmount,
-      deployer
+      deployer,
     };
   },
   ([currencyA, currencyB, deployer, feeAmount]) => {
@@ -4028,28 +4657,30 @@ var getV3PoolMeta = memoize(
         currencyA.chainId,
         currencyA.wrapped.address,
         deployer,
-        feeAmount
+        feeAmount,
       ].join("_");
     }
-    const [token0, token1] = currencyA.wrapped.sortsBefore(currencyB.wrapped) ? [currencyA.wrapped, currencyB.wrapped] : [currencyB.wrapped, currencyA.wrapped];
+    const [token0, token1] = currencyA.wrapped.sortsBefore(currencyB.wrapped)
+      ? [currencyA.wrapped, currencyB.wrapped]
+      : [currencyB.wrapped, currencyA.wrapped];
     return [
       token0.chainId,
       token0.address,
       token1.address,
       deployer,
-      feeAmount
+      feeAmount,
     ].join("_");
   }
 );
 var getV3PoolMetas = memoize(
-  (pair, deployer) => [
-    getV3PoolMeta([...pair, deployer, 100])
-  ],
+  (pair, deployer) => [getV3PoolMeta([...pair, deployer, 100])],
   ([currencyA, currencyB], deployer) => {
     if (currencyA.wrapped.equals(currencyB.wrapped)) {
       return [currencyA.chainId, currencyA.wrapped.address].join("_");
     }
-    const [token0, token1] = currencyA.wrapped.sortsBefore(currencyB.wrapped) ? [currencyA.wrapped, currencyB.wrapped] : [currencyB.wrapped, currencyA.wrapped];
+    const [token0, token1] = currencyA.wrapped.sortsBefore(currencyB.wrapped)
+      ? [currencyA.wrapped, currencyB.wrapped]
+      : [currencyB.wrapped, currencyA.wrapped];
     return [token0.chainId, token0.address, token1.address, deployer].join("_");
   }
 );
@@ -4072,7 +4703,7 @@ var getV3PoolSubgraph = subgraphPoolProviderFactory({
   getPoolsFromSubgraph: async ({ addresses, getPoolMetaByAddress, client }) => {
     const { pools: poolsFromSubgraph } = await client.request(queryV3Pools, {
       pageSize: 1e3,
-      poolAddrs: addresses
+      poolAddrs: addresses,
     });
     return poolsFromSubgraph.map(
       ({
@@ -4082,7 +4713,7 @@ var getV3PoolSubgraph = subgraphPoolProviderFactory({
         tick,
         totalValueLockedUSD,
         fee,
-        deployer
+        deployer,
       }) => {
         const meta = getPoolMetaByAddress(id);
         if (!meta) {
@@ -4091,7 +4722,9 @@ var getV3PoolSubgraph = subgraphPoolProviderFactory({
         const { currencyA, currencyB, address } = meta;
         const [token0, token1] = currencyA.wrapped.sortsBefore(
           currencyB.wrapped
-        ) ? [currencyA, currencyB] : [currencyB, currencyA];
+        )
+          ? [currencyA, currencyB]
+          : [currencyB, currencyA];
         const [token0ProtocolFee, token1ProtocolFee] = parseProtocolFees(0);
         return {
           type: 1 /* V3 */,
@@ -4105,11 +4738,11 @@ var getV3PoolSubgraph = subgraphPoolProviderFactory({
           tvlUSD: BigInt(Number.parseInt(totalValueLockedUSD)),
           token0ProtocolFee,
           token1ProtocolFee,
-          deployer
+          deployer,
         };
       }
     );
-  }
+  },
 });
 var queryV2Pools = gql`
   query getPools($pageSize: Int!, $poolAddrs: [ID!]) {
@@ -4131,18 +4764,18 @@ var getV2PoolSubgraph = subgraphPoolProviderFactory({
         currencyA.wrapped,
         currencyB.wrapped,
         false
-      )
+      ),
     },
     {
       currencyA,
       currencyB,
-      address: computeV2PoolAddress(currencyA.wrapped, currencyB.wrapped, true)
-    }
+      address: computeV2PoolAddress(currencyA.wrapped, currencyB.wrapped, true),
+    },
   ],
   getPoolsFromSubgraph: async ({ addresses, getPoolMetaByAddress, client }) => {
     const { pairs: poolsFromSubgraph } = await client.request(queryV2Pools, {
       pageSize: 1e3,
-      poolAddrs: addresses
+      poolAddrs: addresses,
     });
     return poolsFromSubgraph.map(({ id, reserveUSD, reserve0, reserve1 }) => {
       const meta = getPoolMetaByAddress(id);
@@ -4150,7 +4783,9 @@ var getV2PoolSubgraph = subgraphPoolProviderFactory({
         return null;
       }
       const { currencyA, currencyB, address } = meta;
-      const [token0, token1] = currencyA.wrapped.sortsBefore(currencyB.wrapped) ? [currencyA, currencyB] : [currencyB, currencyA];
+      const [token0, token1] = currencyA.wrapped.sortsBefore(currencyB.wrapped)
+        ? [currencyA, currencyB]
+        : [currencyB, currencyA];
       const reserve0Amount = tryParseAmount_default(reserve0, token0);
       const reserve1Amount = tryParseAmount_default(reserve1, token1);
       if (!reserve0Amount || !reserve1Amount) {
@@ -4161,20 +4796,13 @@ var getV2PoolSubgraph = subgraphPoolProviderFactory({
         type: 0 /* V2 */,
         reserve0: reserve0Amount,
         reserve1: reserve1Amount,
-        tvlUSD: BigInt(Number.parseInt(reserveUSD))
+        tvlUSD: BigInt(Number.parseInt(reserveUSD)),
       };
     });
-  }
+  },
 });
-function subgraphAllPoolsQueryFactory({
-  getPoolsFromSubgraph,
-  getPoolId
-}) {
-  return async function getAllPools({
-    provider,
-    chainId,
-    pageSize = 1e3
-  }) {
+function subgraphAllPoolsQueryFactory({ getPoolsFromSubgraph, getPoolId }) {
+  return async function getAllPools({ provider, chainId, pageSize = 1e3 }) {
     if (!provider || !chainId) {
       throw new Error("No valid subgraph data provider");
     }
@@ -4190,7 +4818,7 @@ function subgraphAllPoolsQueryFactory({
         client,
         lastId,
         pageSize,
-        chainId
+        chainId,
       });
       if (poolsAtCurrentPage.length < pageSize) {
         hasMorePools = false;
@@ -4231,7 +4859,7 @@ var getAllV3PoolsFromSubgraph = subgraphAllPoolsQueryFactory({
   getPoolsFromSubgraph: async ({ lastId, pageSize, client, chainId }) => {
     const { pools: poolsFromSubgraph } = await client.request(queryAllV3Pools, {
       pageSize,
-      id: lastId
+      id: lastId,
     });
     return poolsFromSubgraph.map(
       ({
@@ -4243,7 +4871,7 @@ var getAllV3PoolsFromSubgraph = subgraphAllPoolsQueryFactory({
         token0,
         token1,
         fee,
-        deployer
+        deployer,
       }) => {
         const [token0ProtocolFee, token1ProtocolFee] = parseProtocolFees(0);
         return {
@@ -4268,12 +4896,12 @@ var getAllV3PoolsFromSubgraph = subgraphAllPoolsQueryFactory({
           tvlUSD: BigInt(Number.parseInt(totalValueLockedUSD)),
           token0ProtocolFee,
           token1ProtocolFee,
-          deployer
+          deployer,
         };
       }
     );
   },
-  getPoolId: (p) => p.address
+  getPoolId: (p) => p.address,
 });
 
 // evm/v3-router/providers/poolProviders/getV2CandidatePools.ts
@@ -4286,14 +4914,31 @@ function createV2PoolsProviderByCommonTokenPrices(getCommonTokenPrices2) {
     blockNumber,
     ...rest
   }) {
-    if (currencyA instanceof Token && currencyB instanceof Token && currencyA.symbol && currencyB.symbol) {
-      currencyA = new Token$1(currencyA.chainId, currencyA.address, currencyA.decimals, currencyA.symbol, currencyA.name);
-      currencyB = new Token$1(currencyB.chainId, currencyB.address, currencyB.decimals, currencyB.symbol, currencyB.name);
+    if (
+      currencyA instanceof Token &&
+      currencyB instanceof Token &&
+      currencyA.symbol &&
+      currencyB.symbol
+    ) {
+      currencyA = new Token$1(
+        currencyA.chainId,
+        currencyA.address,
+        currencyA.decimals,
+        currencyA.symbol,
+        currencyA.name
+      );
+      currencyB = new Token$1(
+        currencyB.chainId,
+        currencyB.address,
+        currencyB.decimals,
+        currencyB.symbol,
+        currencyB.name
+      );
     }
     const pairs = providedPairs || getPairCombinations(currencyA, currencyB);
     const [poolsFromOnChain, baseTokenUsdPrices] = await Promise.all([
       getV2PoolsOnChain(pairs, onChainProvider, blockNumber),
-      getCommonTokenPrices2({ currencyA, currencyB, ...rest })
+      getCommonTokenPrices2({ currencyA, currencyB, ...rest }),
     ]);
     if (!poolsFromOnChain) {
       throw new Error("Failed to get v2 candidate pools");
@@ -4304,7 +4949,7 @@ function createV2PoolsProviderByCommonTokenPrices(getCommonTokenPrices2) {
         return {
           ...pool,
           tvlUSD: BigInt(0),
-          address: getPoolAddress(pool)
+          address: getPoolAddress(pool),
         };
       });
     }
@@ -4317,30 +4962,63 @@ function createV2PoolsProviderByCommonTokenPrices(getCommonTokenPrices2) {
         if (price !== void 0) {
           return parseFloat(amount.toExact()) * price;
         }
-        const againstAmount = pool.reserve0.currency.equals(amount.currency) ? pool.reserve1 : pool.reserve0;
-        const againstUsdPrice = baseTokenUsdPrices.get(againstAmount.currency.wrapped.address);
+        const againstAmount = pool.reserve0.currency.equals(amount.currency)
+          ? pool.reserve1
+          : pool.reserve0;
+        const againstUsdPrice = baseTokenUsdPrices.get(
+          againstAmount.currency.wrapped.address
+        );
         if (againstUsdPrice) {
-          const poolPrice = new Price$1({ baseAmount: amount, quoteAmount: againstAmount });
-          return parseFloat(amount.toExact()) * parseFloat(formatPrice(poolPrice, 6) || "0");
+          const poolPrice = new Price$1({
+            baseAmount: amount,
+            quoteAmount: againstAmount,
+          });
+          return (
+            parseFloat(amount.toExact()) *
+            parseFloat(formatPrice(poolPrice, 6) || "0")
+          );
         }
         return 0;
       };
       return {
         ...pool,
-        tvlUSD: BigInt(Math.floor(getAmountUsd(pool.reserve0) + getAmountUsd(pool.reserve1))),
-        address: getPoolAddress(pool)
+        tvlUSD: BigInt(
+          Math.floor(getAmountUsd(pool.reserve0) + getAmountUsd(pool.reserve1))
+        ),
+        address: getPoolAddress(pool),
       };
     });
   };
 }
-var getV2PoolsWithTvlByCommonTokenPrices = createV2PoolsProviderByCommonTokenPrices(getCommonTokenPrices);
+var getV2PoolsWithTvlByCommonTokenPrices =
+  createV2PoolsProviderByCommonTokenPrices(getCommonTokenPrices);
 function createGetV2CandidatePools(defaultGetV2Pools, options) {
-  const getV2PoolsWithFallbacks = createAsyncCallWithFallbacks(defaultGetV2Pools, options);
+  const getV2PoolsWithFallbacks = createAsyncCallWithFallbacks(
+    defaultGetV2Pools,
+    options
+  );
   return async function getV2Pools(params) {
     let { currencyA, currencyB } = params;
-    if (currencyA instanceof Token && currencyB instanceof Token && currencyA.symbol && currencyB.symbol) {
-      currencyA = new Token$1(currencyA.chainId, currencyA.address, currencyA.decimals, currencyA.symbol, currencyA.name);
-      currencyB = new Token$1(currencyB.chainId, currencyB.address, currencyB.decimals, currencyB.symbol, currencyB.name);
+    if (
+      currencyA instanceof Token &&
+      currencyB instanceof Token &&
+      currencyA.symbol &&
+      currencyB.symbol
+    ) {
+      currencyA = new Token$1(
+        currencyA.chainId,
+        currencyA.address,
+        currencyA.decimals,
+        currencyA.symbol,
+        currencyA.name
+      );
+      currencyB = new Token$1(
+        currencyB.chainId,
+        currencyB.address,
+        currencyB.decimals,
+        currencyB.symbol,
+        currencyB.name
+      );
     }
     const pools = await getV2PoolsWithFallbacks(params);
     return v2PoolTvlSelector(currencyA, currencyB, pools);
@@ -4351,12 +5029,15 @@ async function getV2CandidatePools(params) {
     ({ pairs: providedPairs, currencyA, currencyB, v2SubgraphProvider }) => {
       const pairs = providedPairs || getPairCombinations(currencyA, currencyB);
       return getV2PoolSubgraph({ provider: v2SubgraphProvider, pairs });
-    }
+    },
   ];
-  const getV2PoolsWithFallbacks = createGetV2CandidatePools(getV2PoolsWithTvlByCommonTokenPrices, {
-    fallbacks,
-    fallbackTimeout: 3e3
-  });
+  const getV2PoolsWithFallbacks = createGetV2CandidatePools(
+    getV2PoolsWithTvlByCommonTokenPrices,
+    {
+      fallbacks,
+      fallbackTimeout: 3e3,
+    }
+  );
   return getV2PoolsWithFallbacks(params);
 }
 var getV3PoolTvl = memoize(
@@ -4368,17 +5049,43 @@ var getV3PoolTvl = memoize(
 );
 var v3PoolsOnChainProviderFactory = (tvlReferenceProvider) => {
   return async function getV3PoolsWithTvlFromOnChain2(params) {
-    let { currencyA, currencyB, pairs: providedPairs, onChainProvider, blockNumber } = params;
-    if (currencyA instanceof Token && currencyB instanceof Token && currencyA.symbol && currencyB.symbol) {
-      currencyA = new Token$1(currencyA.chainId, currencyA.address, currencyA.decimals, currencyA.symbol, currencyA.name);
-      currencyB = new Token$1(currencyB.chainId, currencyB.address, currencyB.decimals, currencyB.symbol, currencyB.name);
+    let {
+      currencyA,
+      currencyB,
+      pairs: providedPairs,
+      onChainProvider,
+      blockNumber,
+    } = params;
+    if (
+      currencyA instanceof Token &&
+      currencyB instanceof Token &&
+      currencyA.symbol &&
+      currencyB.symbol
+    ) {
+      currencyA = new Token$1(
+        currencyA.chainId,
+        currencyA.address,
+        currencyA.decimals,
+        currencyA.symbol,
+        currencyA.name
+      );
+      currencyB = new Token$1(
+        currencyB.chainId,
+        currencyB.address,
+        currencyB.decimals,
+        currencyB.symbol,
+        currencyB.name
+      );
     }
     const pairs = providedPairs || getPairCombinations(currencyA, currencyB);
     const [fromOnChain, tvlReference] = await Promise.allSettled([
       getV3PoolsWithoutTicksOnChain(pairs, onChainProvider, blockNumber),
-      tvlReferenceProvider(params)
+      tvlReferenceProvider(params),
     ]);
-    if (fromOnChain.status === "fulfilled" && tvlReference.status === "fulfilled") {
+    if (
+      fromOnChain.status === "fulfilled" &&
+      tvlReference.status === "fulfilled"
+    ) {
       const { value: poolsFromOnChain } = fromOnChain;
       const { value: poolTvlReferences } = tvlReference;
       if (!Array.isArray(poolTvlReferences)) {
@@ -4388,18 +5095,37 @@ var v3PoolsOnChainProviderFactory = (tvlReferenceProvider) => {
         const tvlUSD = BigInt(getV3PoolTvl(poolTvlReferences, pool.address));
         return {
           ...pool,
-          tvlUSD
+          tvlUSD,
         };
       });
     }
-    throw new Error(`Getting v3 pools failed. Onchain ${fromOnChain.status}, tvl references ${tvlReference.status}`);
+    throw new Error(
+      `Getting v3 pools failed. Onchain ${fromOnChain.status}, tvl references ${tvlReference.status}`
+    );
   };
 };
 var getV3PoolsWithTvlFromOnChain = v3PoolsOnChainProviderFactory((params) => {
   let { currencyA, currencyB, pairs: providedPairs, subgraphProvider } = params;
-  if (currencyA instanceof Token && currencyB instanceof Token && currencyA.symbol && currencyB.symbol) {
-    currencyA = new Token$1(currencyA.chainId, currencyA.address, currencyA.decimals, currencyA.symbol, currencyA.name);
-    currencyB = new Token$1(currencyB.chainId, currencyB.address, currencyB.decimals, currencyB.symbol, currencyB.name);
+  if (
+    currencyA instanceof Token &&
+    currencyB instanceof Token &&
+    currencyA.symbol &&
+    currencyB.symbol
+  ) {
+    currencyA = new Token$1(
+      currencyA.chainId,
+      currencyA.address,
+      currencyA.decimals,
+      currencyA.symbol,
+      currencyA.name
+    );
+    currencyB = new Token$1(
+      currencyB.chainId,
+      currencyB.address,
+      currencyB.decimals,
+      currencyB.symbol,
+      currencyB.name
+    );
   }
   const pairs = providedPairs || getPairCombinations(currencyA, currencyB);
   return getV3PoolSubgraph({ provider: subgraphProvider, pairs });
@@ -4409,7 +5135,9 @@ var createFallbackTvlRefGetter = () => {
   return async (params) => {
     const { currencyA } = params;
     if (!currencyA?.chainId) {
-      throw new Error(`Cannot get tvl references at chain ${currencyA?.chainId}`);
+      throw new Error(
+        `Cannot get tvl references at chain ${currencyA?.chainId}`
+      );
     }
     const cached = cache.get(currencyA.chainId);
     if (cached) {
@@ -4418,30 +5146,62 @@ var createFallbackTvlRefGetter = () => {
     throw "E";
   };
 };
-var getV3PoolsWithTvlFromOnChainFallback = v3PoolsOnChainProviderFactory(createFallbackTvlRefGetter());
-var getV3PoolsWithTvlFromOnChainStaticFallback = v3PoolsOnChainProviderFactory(() => Promise.resolve([]));
+var getV3PoolsWithTvlFromOnChainFallback = v3PoolsOnChainProviderFactory(
+  createFallbackTvlRefGetter()
+);
+var getV3PoolsWithTvlFromOnChainStaticFallback = v3PoolsOnChainProviderFactory(
+  () => Promise.resolve([])
+);
 function createGetV3CandidatePools(defaultGetV3Pools, options) {
-  const getV3PoolsWithFallbacks = createAsyncCallWithFallbacks(defaultGetV3Pools, options);
+  const getV3PoolsWithFallbacks = createAsyncCallWithFallbacks(
+    defaultGetV3Pools,
+    options
+  );
   return async function getV3Pools(params) {
     let { currencyA, currencyB } = params;
-    if (currencyA instanceof Token && currencyB instanceof Token && currencyA.symbol && currencyB.symbol) {
-      currencyA = new Token$1(currencyA.chainId, currencyA.address, currencyA.decimals, currencyA.symbol, currencyA.name);
-      currencyB = new Token$1(currencyB.chainId, currencyB.address, currencyB.decimals, currencyB.symbol, currencyB.name);
+    if (
+      currencyA instanceof Token &&
+      currencyB instanceof Token &&
+      currencyA.symbol &&
+      currencyB.symbol
+    ) {
+      currencyA = new Token$1(
+        currencyA.chainId,
+        currencyA.address,
+        currencyA.decimals,
+        currencyA.symbol,
+        currencyA.name
+      );
+      currencyB = new Token$1(
+        currencyB.chainId,
+        currencyB.address,
+        currencyB.decimals,
+        currencyB.symbol,
+        currencyB.name
+      );
     }
     const pools = await getV3PoolsWithFallbacks(params);
     return v3PoolTvlSelector(currencyA, currencyB, pools);
   };
 }
 async function getV3CandidatePools(params) {
-  const { subgraphFallback = true, staticFallback = true, fallbackTimeout, ...rest } = params;
+  const {
+    subgraphFallback = true,
+    staticFallback = true,
+    fallbackTimeout,
+    ...rest
+  } = params;
   const fallbacks = [];
   if (staticFallback) {
     fallbacks.push(getV3PoolsWithTvlFromOnChainStaticFallback);
   }
-  const getV3PoolsWithFallback = createGetV3CandidatePools(getV3PoolsWithTvlFromOnChainStaticFallback, {
-    fallbacks,
-    fallbackTimeout
-  });
+  const getV3PoolsWithFallback = createGetV3CandidatePools(
+    getV3PoolsWithTvlFromOnChainStaticFallback,
+    {
+      fallbacks,
+      fallbackTimeout,
+    }
+  );
   return getV3PoolsWithFallback(rest);
 }
 
@@ -4463,12 +5223,12 @@ async function getCandidatePools({
         return getV2CandidatePools({
           ...rest,
           v2SubgraphProvider,
-          v3SubgraphProvider
+          v3SubgraphProvider,
         });
       }
       return getV3CandidatePools({
         ...rest,
-        subgraphProvider: v3SubgraphProvider
+        subgraphProvider: v3SubgraphProvider,
       });
     })
   );
@@ -4479,12 +5239,17 @@ async function getCandidatePools({
 function createHybridPoolProvider({
   onChainProvider,
   v2SubgraphProvider,
-  v3SubgraphProvider
+  v3SubgraphProvider,
 }) {
   const hybridPoolProvider = {
     getCandidatePools: async (params) => {
-      return getCandidatePools({ ...params, onChainProvider, v2SubgraphProvider, v3SubgraphProvider });
-    }
+      return getCandidatePools({
+        ...params,
+        onChainProvider,
+        v2SubgraphProvider,
+        v3SubgraphProvider,
+      });
+    },
   };
   return createPoolProviderWithCache(hybridPoolProvider);
 }
@@ -4493,7 +5258,10 @@ function createHybridPoolProvider({
 function createStaticPoolProvider(pools) {
   const defaultAllowedProtocols = [0 /* V2 */, 2 /* STABLE */, 1 /* V3 */];
   return {
-    getCandidatePools: async ({ protocols = defaultAllowedProtocols, pairs }) => {
+    getCandidatePools: async ({
+      protocols = defaultAllowedProtocols,
+      pairs,
+    }) => {
       if (!pools) {
         return [];
       }
@@ -4503,13 +5271,17 @@ function createStaticPoolProvider(pools) {
       const relatedPools = [];
       for (const [currencyA, currencyB] of pairs) {
         for (const pool of pools) {
-          if (involvesCurrency(pool, currencyA) && involvesCurrency(pool, currencyB) && protocols.includes(pool.type)) {
+          if (
+            involvesCurrency(pool, currencyA) &&
+            involvesCurrency(pool, currencyB) &&
+            protocols.includes(pool.type)
+          ) {
             relatedPools.push(pool);
           }
         }
       }
       return relatedPools;
-    }
+    },
   };
 }
 
@@ -4524,7 +5296,7 @@ function createOffChainQuoteProvider() {
     const getV3Quote = createGetV3Quote(isExactIn);
     function* each(pools) {
       let i = isExactIn ? 0 : pools.length - 1;
-      const hasNext = () => isExactIn ? i < pools.length : i >= 0;
+      const hasNext = () => (isExactIn ? i < pools.length : i >= 0);
       while (hasNext()) {
         yield [pools[i], i];
         if (isExactIn) {
@@ -4567,38 +5339,49 @@ function createOffChainQuoteProvider() {
           if (!quoteSuccess) {
             continue;
           }
-          const { gasEstimate, gasCostInUSD, gasCostInToken } = gasModel.estimateGasCost(
-            {
-              ...route,
-              quote
-            },
-            { initializedTickCrossedList }
-          );
+          const { gasEstimate, gasCostInUSD, gasCostInToken } =
+            gasModel.estimateGasCost(
+              {
+                ...route,
+                quote,
+              },
+              { initializedTickCrossedList }
+            );
           routesWithQuote.push({
             ...route,
             quote,
             quoteAdjustedForGas: adjustQuoteForGas(quote, gasCostInToken),
             gasEstimate,
             gasCostInUSD,
-            gasCostInToken
+            gasCostInToken,
           });
-        } catch (e) {
-        }
+        } catch (e) {}
       }
       return routesWithQuote;
     };
   };
   return {
     getRouteWithQuotesExactIn: createGetRoutesWithQuotes(true),
-    getRouteWithQuotesExactOut: createGetRoutesWithQuotes(false)
+    getRouteWithQuotesExactOut: createGetRoutesWithQuotes(false),
   };
 }
 function createGetV2Quote(isExactIn = true) {
   return function getV2Quote({ reserve0, reserve1 }, amount, isStable) {
-    const [currencyA, currencyB] = reserve0.wrapped.currency.sortsBefore(reserve1.wrapped.currency) ? [reserve0.wrapped.currency, reserve1.wrapped.currency] : [reserve1.wrapped.currency, reserve0.wrapped.currency];
-    Pair.getAddress = computePairAddress.bind(Pair, currencyA, currencyB, isStable);
+    const [currencyA, currencyB] = reserve0.wrapped.currency.sortsBefore(
+      reserve1.wrapped.currency
+    )
+      ? [reserve0.wrapped.currency, reserve1.wrapped.currency]
+      : [reserve1.wrapped.currency, reserve0.wrapped.currency];
+    Pair.getAddress = computePairAddress.bind(
+      Pair,
+      currencyA,
+      currencyB,
+      isStable
+    );
     const pair = new Pair(reserve0.wrapped, reserve1.wrapped);
-    const [quote] = isExactIn ? pair.getOutputAmount(amount.wrapped) : pair.getInputAmount(amount.wrapped);
+    const [quote] = isExactIn
+      ? pair.getOutputAmount(amount.wrapped)
+      : pair.getInputAmount(amount.wrapped);
     return quote;
   };
 }
@@ -4609,16 +5392,30 @@ function createGetV3Quote(isExactIn = true) {
       return null;
     }
     try {
-      const v3Pool = new Pool(token0.wrapped, token1.wrapped, fee, sqrtRatioX96, liquidity, tick, ticks);
-      const [quote, poolAfter] = isExactIn ? await v3Pool.getOutputAmount(amount.wrapped) : await v3Pool.getInputAmount(amount.wrapped);
+      const v3Pool = new Pool(
+        token0.wrapped,
+        token1.wrapped,
+        fee,
+        sqrtRatioX96,
+        liquidity,
+        tick,
+        ticks
+      );
+      const [quote, poolAfter] = isExactIn
+        ? await v3Pool.getOutputAmount(amount.wrapped)
+        : await v3Pool.getInputAmount(amount.wrapped);
       if (quote.quotient <= BigInt(0)) {
         return null;
       }
       const { tickCurrent: tickAfter } = poolAfter;
-      const numOfTicksCrossed = TickList.countInitializedTicksCrossed(ticks, tick, tickAfter);
+      const numOfTicksCrossed = TickList.countInitializedTicksCrossed(
+        ticks,
+        tick,
+        tickAfter
+      );
       return {
         quote,
-        numOfTicksCrossed
+        numOfTicksCrossed,
       };
     } catch (e) {
       return null;
@@ -4645,350 +5442,353 @@ function isAbortError(error) {
 // evm/abis/algebra/IQuoterV2.ts
 var algebraQuoterV2ABI = [
   {
-    "inputs": [
+    inputs: [
       {
-        "internalType": "address",
-        "name": "_factory",
-        "type": "address"
+        internalType: "address",
+        name: "_factory",
+        type: "address",
       },
       {
-        "internalType": "address",
-        "name": "_WNativeToken",
-        "type": "address"
+        internalType: "address",
+        name: "_WNativeToken",
+        type: "address",
       },
       {
-        "internalType": "address",
-        "name": "_poolDeployer",
-        "type": "address"
-      }
+        internalType: "address",
+        name: "_poolDeployer",
+        type: "address",
+      },
     ],
-    "stateMutability": "nonpayable",
-    "type": "constructor"
+    stateMutability: "nonpayable",
+    type: "constructor",
   },
   {
-    "inputs": [],
-    "name": "WNativeToken",
-    "outputs": [
+    inputs: [],
+    name: "WNativeToken",
+    outputs: [
       {
-        "internalType": "address",
-        "name": "",
-        "type": "address"
-      }
+        internalType: "address",
+        name: "",
+        type: "address",
+      },
     ],
-    "stateMutability": "view",
-    "type": "function"
+    stateMutability: "view",
+    type: "function",
   },
   {
-    "inputs": [
+    inputs: [
       {
-        "internalType": "int256",
-        "name": "amount0Delta",
-        "type": "int256"
+        internalType: "int256",
+        name: "amount0Delta",
+        type: "int256",
       },
       {
-        "internalType": "int256",
-        "name": "amount1Delta",
-        "type": "int256"
+        internalType: "int256",
+        name: "amount1Delta",
+        type: "int256",
       },
       {
-        "internalType": "bytes",
-        "name": "path",
-        "type": "bytes"
-      }
+        internalType: "bytes",
+        name: "path",
+        type: "bytes",
+      },
     ],
-    "name": "algebraSwapCallback",
-    "outputs": [],
-    "stateMutability": "view",
-    "type": "function"
+    name: "algebraSwapCallback",
+    outputs: [],
+    stateMutability: "view",
+    type: "function",
   },
   {
-    "inputs": [],
-    "name": "factory",
-    "outputs": [
+    inputs: [],
+    name: "factory",
+    outputs: [
       {
-        "internalType": "address",
-        "name": "",
-        "type": "address"
-      }
+        internalType: "address",
+        name: "",
+        type: "address",
+      },
     ],
-    "stateMutability": "view",
-    "type": "function"
+    stateMutability: "view",
+    type: "function",
   },
   {
-    "inputs": [],
-    "name": "poolDeployer",
-    "outputs": [
+    inputs: [],
+    name: "poolDeployer",
+    outputs: [
       {
-        "internalType": "address",
-        "name": "",
-        "type": "address"
-      }
+        internalType: "address",
+        name: "",
+        type: "address",
+      },
     ],
-    "stateMutability": "view",
-    "type": "function"
+    stateMutability: "view",
+    type: "function",
   },
   {
-    "inputs": [
+    inputs: [
       {
-        "internalType": "bytes",
-        "name": "path",
-        "type": "bytes"
+        internalType: "bytes",
+        name: "path",
+        type: "bytes",
       },
       {
-        "internalType": "uint256",
-        "name": "amountInRequired",
-        "type": "uint256"
-      }
+        internalType: "uint256",
+        name: "amountInRequired",
+        type: "uint256",
+      },
     ],
-    "name": "quoteExactInput",
-    "outputs": [
+    name: "quoteExactInput",
+    outputs: [
       {
-        "internalType": "uint256[]",
-        "name": "amountOutList",
-        "type": "uint256[]"
+        internalType: "uint256[]",
+        name: "amountOutList",
+        type: "uint256[]",
       },
       {
-        "internalType": "uint256[]",
-        "name": "amountInList",
-        "type": "uint256[]"
+        internalType: "uint256[]",
+        name: "amountInList",
+        type: "uint256[]",
       },
       {
-        "internalType": "uint160[]",
-        "name": "sqrtPriceX96AfterList",
-        "type": "uint160[]"
+        internalType: "uint160[]",
+        name: "sqrtPriceX96AfterList",
+        type: "uint160[]",
       },
       {
-        "internalType": "uint32[]",
-        "name": "initializedTicksCrossedList",
-        "type": "uint32[]"
+        internalType: "uint32[]",
+        name: "initializedTicksCrossedList",
+        type: "uint32[]",
       },
       {
-        "internalType": "uint256",
-        "name": "gasEstimate",
-        "type": "uint256"
+        internalType: "uint256",
+        name: "gasEstimate",
+        type: "uint256",
       },
       {
-        "internalType": "uint16[]",
-        "name": "feeList",
-        "type": "uint16[]"
-      }
+        internalType: "uint16[]",
+        name: "feeList",
+        type: "uint16[]",
+      },
     ],
-    "stateMutability": "nonpayable",
-    "type": "function"
+    stateMutability: "nonpayable",
+    type: "function",
   },
   {
-    "inputs": [
+    inputs: [
       {
-        "components": [
+        components: [
           {
-            "internalType": "address",
-            "name": "tokenIn",
-            "type": "address"
+            internalType: "address",
+            name: "tokenIn",
+            type: "address",
           },
           {
-            "internalType": "address",
-            "name": "tokenOut",
-            "type": "address"
+            internalType: "address",
+            name: "tokenOut",
+            type: "address",
           },
           {
-            "internalType": "address",
-            "name": "deployer",
-            "type": "address"
+            internalType: "address",
+            name: "deployer",
+            type: "address",
           },
           {
-            "internalType": "uint256",
-            "name": "amountIn",
-            "type": "uint256"
+            internalType: "uint256",
+            name: "amountIn",
+            type: "uint256",
           },
           {
-            "internalType": "uint160",
-            "name": "limitSqrtPrice",
-            "type": "uint160"
-          }
+            internalType: "uint160",
+            name: "limitSqrtPrice",
+            type: "uint160",
+          },
         ],
-        "internalType": "struct IQuoterV2.QuoteExactInputSingleParams",
-        "name": "params",
-        "type": "tuple"
-      }
+        internalType: "struct IQuoterV2.QuoteExactInputSingleParams",
+        name: "params",
+        type: "tuple",
+      },
     ],
-    "name": "quoteExactInputSingle",
-    "outputs": [
+    name: "quoteExactInputSingle",
+    outputs: [
       {
-        "internalType": "uint256",
-        "name": "amountOut",
-        "type": "uint256"
+        internalType: "uint256",
+        name: "amountOut",
+        type: "uint256",
       },
       {
-        "internalType": "uint256",
-        "name": "amountIn",
-        "type": "uint256"
+        internalType: "uint256",
+        name: "amountIn",
+        type: "uint256",
       },
       {
-        "internalType": "uint160",
-        "name": "sqrtPriceX96After",
-        "type": "uint160"
+        internalType: "uint160",
+        name: "sqrtPriceX96After",
+        type: "uint160",
       },
       {
-        "internalType": "uint32",
-        "name": "initializedTicksCrossed",
-        "type": "uint32"
+        internalType: "uint32",
+        name: "initializedTicksCrossed",
+        type: "uint32",
       },
       {
-        "internalType": "uint256",
-        "name": "gasEstimate",
-        "type": "uint256"
+        internalType: "uint256",
+        name: "gasEstimate",
+        type: "uint256",
       },
       {
-        "internalType": "uint16",
-        "name": "fee",
-        "type": "uint16"
-      }
+        internalType: "uint16",
+        name: "fee",
+        type: "uint16",
+      },
     ],
-    "stateMutability": "nonpayable",
-    "type": "function"
+    stateMutability: "nonpayable",
+    type: "function",
   },
   {
-    "inputs": [
+    inputs: [
       {
-        "internalType": "bytes",
-        "name": "path",
-        "type": "bytes"
+        internalType: "bytes",
+        name: "path",
+        type: "bytes",
       },
       {
-        "internalType": "uint256",
-        "name": "amountOutRequired",
-        "type": "uint256"
-      }
+        internalType: "uint256",
+        name: "amountOutRequired",
+        type: "uint256",
+      },
     ],
-    "name": "quoteExactOutput",
-    "outputs": [
+    name: "quoteExactOutput",
+    outputs: [
       {
-        "internalType": "uint256[]",
-        "name": "amountOutList",
-        "type": "uint256[]"
+        internalType: "uint256[]",
+        name: "amountOutList",
+        type: "uint256[]",
       },
       {
-        "internalType": "uint256[]",
-        "name": "amountInList",
-        "type": "uint256[]"
+        internalType: "uint256[]",
+        name: "amountInList",
+        type: "uint256[]",
       },
       {
-        "internalType": "uint160[]",
-        "name": "sqrtPriceX96AfterList",
-        "type": "uint160[]"
+        internalType: "uint160[]",
+        name: "sqrtPriceX96AfterList",
+        type: "uint160[]",
       },
       {
-        "internalType": "uint32[]",
-        "name": "initializedTicksCrossedList",
-        "type": "uint32[]"
+        internalType: "uint32[]",
+        name: "initializedTicksCrossedList",
+        type: "uint32[]",
       },
       {
-        "internalType": "uint256",
-        "name": "gasEstimate",
-        "type": "uint256"
+        internalType: "uint256",
+        name: "gasEstimate",
+        type: "uint256",
       },
       {
-        "internalType": "uint16[]",
-        "name": "feeList",
-        "type": "uint16[]"
-      }
+        internalType: "uint16[]",
+        name: "feeList",
+        type: "uint16[]",
+      },
     ],
-    "stateMutability": "nonpayable",
-    "type": "function"
+    stateMutability: "nonpayable",
+    type: "function",
   },
   {
-    "inputs": [
+    inputs: [
       {
-        "components": [
+        components: [
           {
-            "internalType": "address",
-            "name": "tokenIn",
-            "type": "address"
+            internalType: "address",
+            name: "tokenIn",
+            type: "address",
           },
           {
-            "internalType": "address",
-            "name": "tokenOut",
-            "type": "address"
+            internalType: "address",
+            name: "tokenOut",
+            type: "address",
           },
           {
-            "internalType": "address",
-            "name": "deployer",
-            "type": "address"
+            internalType: "address",
+            name: "deployer",
+            type: "address",
           },
           {
-            "internalType": "uint256",
-            "name": "amount",
-            "type": "uint256"
+            internalType: "uint256",
+            name: "amount",
+            type: "uint256",
           },
           {
-            "internalType": "uint160",
-            "name": "limitSqrtPrice",
-            "type": "uint160"
-          }
+            internalType: "uint160",
+            name: "limitSqrtPrice",
+            type: "uint160",
+          },
         ],
-        "internalType": "struct IQuoterV2.QuoteExactOutputSingleParams",
-        "name": "params",
-        "type": "tuple"
-      }
+        internalType: "struct IQuoterV2.QuoteExactOutputSingleParams",
+        name: "params",
+        type: "tuple",
+      },
     ],
-    "name": "quoteExactOutputSingle",
-    "outputs": [
+    name: "quoteExactOutputSingle",
+    outputs: [
       {
-        "internalType": "uint256",
-        "name": "amountOut",
-        "type": "uint256"
+        internalType: "uint256",
+        name: "amountOut",
+        type: "uint256",
       },
       {
-        "internalType": "uint256",
-        "name": "amountIn",
-        "type": "uint256"
+        internalType: "uint256",
+        name: "amountIn",
+        type: "uint256",
       },
       {
-        "internalType": "uint160",
-        "name": "sqrtPriceX96After",
-        "type": "uint160"
+        internalType: "uint160",
+        name: "sqrtPriceX96After",
+        type: "uint160",
       },
       {
-        "internalType": "uint32",
-        "name": "initializedTicksCrossed",
-        "type": "uint32"
+        internalType: "uint32",
+        name: "initializedTicksCrossed",
+        type: "uint32",
       },
       {
-        "internalType": "uint256",
-        "name": "gasEstimate",
-        "type": "uint256"
+        internalType: "uint256",
+        name: "gasEstimate",
+        type: "uint256",
       },
       {
-        "internalType": "uint16",
-        "name": "fee",
-        "type": "uint16"
-      }
+        internalType: "uint16",
+        name: "fee",
+        type: "uint16",
+      },
     ],
-    "stateMutability": "nonpayable",
-    "type": "function"
-  }
+    stateMutability: "nonpayable",
+    type: "function",
+  },
 ];
 
 // evm/multicall/src/constants/contracts.ts
 var MULTICALL_ADDRESS = {
-  [84532 /* BASE_SEPOLIA */]: "0xf08e7861984cb4d2ba8b69e3c4ae20443dfa3c31",
-  [943 /* PULSECHAIN_TESTNET */]: "0x3aA5461Db8c839973CDfb374778846B0454C0837"
+  // [84532 /* BASE_SEPOLIA */]: "0xf08e7861984cb4d2ba8b69e3c4ae20443dfa3c31",
+  [943 /* PULSECHAIN_TESTNET */]: "0x3aA5461Db8c839973CDfb374778846B0454C0837",
 };
 
 // evm/multicall/src/constants/blockConflictTolerance.ts
 var DEFAULT_BLOCK_CONFLICT_TOLERANCE = 0;
 var BLOCK_CONFLICT_TOLERANCE = {
-  [84532 /* BASE_SEPOLIA */]: 3
+  // [84532 /* BASE_SEPOLIA */]: 3,
+  [943 /* PULSECHAIN_TESTNET */]: 3,
 };
 
 // evm/multicall/src/constants/gasLimit.ts
 var DEFAULT_GAS_LIMIT = BigInt(15e7);
 var DEFAULT_GAS_LIMIT_BY_CHAIN = {
-  [84532 /* BASE_SEPOLIA */]: DEFAULT_GAS_LIMIT
+  // [84532 /* BASE_SEPOLIA */]: DEFAULT_GAS_LIMIT,
+  [943 /* PULSECHAIN_TESTNET */]: DEFAULT_GAS_LIMIT,
 };
 var DEFAULT_GAS_BUFFER = BigInt(3e6);
 var DEFAULT_GAS_BUFFER_BY_CHAIN = {
-  [84532 /* BASE_SEPOLIA */]: DEFAULT_GAS_BUFFER
+  // [84532 /* BASE_SEPOLIA */]: DEFAULT_GAS_BUFFER,
+  [943 /* PULSECHAIN_TESTNET */]: DEFAULT_GAS_BUFFER,
 };
 
 // evm/multicall/src/abis/IMulticall.ts
@@ -4998,14 +5798,14 @@ var iMulticallABI = [
     name: "gasLeft",
     outputs: [{ internalType: "uint256", name: "", type: "uint256" }],
     stateMutability: "view",
-    type: "function"
+    type: "function",
   },
   {
     inputs: [],
     name: "gaslimit",
     outputs: [{ internalType: "uint256", name: "", type: "uint256" }],
     stateMutability: "view",
-    type: "function"
+    type: "function",
   },
   {
     inputs: [
@@ -5013,12 +5813,12 @@ var iMulticallABI = [
         components: [
           { internalType: "address", name: "target", type: "address" },
           { internalType: "uint256", name: "gasLimit", type: "uint256" },
-          { internalType: "bytes", name: "callData", type: "bytes" }
+          { internalType: "bytes", name: "callData", type: "bytes" },
         ],
         internalType: "struct MultiCallV2.Call[]",
         name: "calls",
-        type: "tuple[]"
-      }
+        type: "tuple[]",
+      },
     ],
     name: "multicall",
     outputs: [
@@ -5027,15 +5827,15 @@ var iMulticallABI = [
         components: [
           { internalType: "bool", name: "success", type: "bool" },
           { internalType: "uint256", name: "gasUsed", type: "uint256" },
-          { internalType: "bytes", name: "returnData", type: "bytes" }
+          { internalType: "bytes", name: "returnData", type: "bytes" },
         ],
         internalType: "struct MultiCallV2.Result[]",
         name: "returnData",
-        type: "tuple[]"
-      }
+        type: "tuple[]",
+      },
     ],
     stateMutability: "nonpayable",
-    type: "function"
+    type: "function",
   },
   {
     inputs: [
@@ -5043,13 +5843,13 @@ var iMulticallABI = [
         components: [
           { internalType: "address", name: "target", type: "address" },
           { internalType: "uint256", name: "gasLimit", type: "uint256" },
-          { internalType: "bytes", name: "callData", type: "bytes" }
+          { internalType: "bytes", name: "callData", type: "bytes" },
         ],
         internalType: "struct MultiCallV2.Call[]",
         name: "calls",
-        type: "tuple[]"
+        type: "tuple[]",
       },
-      { internalType: "uint256", name: "gasBuffer", type: "uint256" }
+      { internalType: "uint256", name: "gasBuffer", type: "uint256" },
     ],
     name: "multicallWithGasLimitation",
     outputs: [
@@ -5058,17 +5858,17 @@ var iMulticallABI = [
         components: [
           { internalType: "bool", name: "success", type: "bool" },
           { internalType: "uint256", name: "gasUsed", type: "uint256" },
-          { internalType: "bytes", name: "returnData", type: "bytes" }
+          { internalType: "bytes", name: "returnData", type: "bytes" },
         ],
         internalType: "struct MultiCallV2.Result[]",
         name: "returnData",
-        type: "tuple[]"
+        type: "tuple[]",
       },
-      { internalType: "uint256", name: "lastSuccessIndex", type: "uint256" }
+      { internalType: "uint256", name: "lastSuccessIndex", type: "uint256" },
     ],
     stateMutability: "nonpayable",
-    type: "function"
-  }
+    type: "function",
+  },
 ];
 
 // evm/multicall/src/getMulticallContract.ts
@@ -5102,17 +5902,23 @@ async function getGasLimit({
   gasLimit: gasLimitInput,
   maxGasLimit: maxGasLimitInput = getDefaultGasLimit(chainId),
   gasBuffer: gasBufferInput = getDefaultGasBuffer(chainId),
-  client
+  client,
 }) {
   const gasLimitOverride = gasLimitInput && toBigInt(gasLimitInput);
   const maxGasLimit = toBigInt(maxGasLimitInput);
   const gasBuffer = toBigInt(gasBufferInput);
-  const gasLimit = gasLimitOverride || await getGasLimitOnChain({ chainId, client }) || maxGasLimit;
+  const gasLimit =
+    gasLimitOverride ||
+    (await getGasLimitOnChain({ chainId, client })) ||
+    maxGasLimit;
   const minGasLimit = gasLimit < maxGasLimit ? gasLimit : maxGasLimit;
   return minGasLimit - gasBuffer;
 }
 function isViemAbortError(e) {
-  return e instanceof BaseError && e.walk((err) => err instanceof TimeoutError) instanceof TimeoutError;
+  return (
+    e instanceof BaseError &&
+    e.walk((err) => err instanceof TimeoutError) instanceof TimeoutError
+  );
 }
 
 // evm/multicall/src/getBlockConflictTolerance.ts
@@ -5121,32 +5927,36 @@ function getBlockConflictTolerance(chainId) {
 }
 
 // evm/multicall/src/multicall.ts
-async function multicallByGasLimit(calls, {
-  chainId,
-  gasBuffer = getDefaultGasBuffer(chainId),
-  client,
-  dropUnexecutedCalls,
-  signal,
-  retryFailedCallsWithGreaterLimit,
-  ...rest
-}) {
+async function multicallByGasLimit(
+  calls,
+  {
+    chainId,
+    gasBuffer = getDefaultGasBuffer(chainId),
+    client,
+    dropUnexecutedCalls,
+    signal,
+    retryFailedCallsWithGreaterLimit,
+    ...rest
+  }
+) {
   const gasLimit = await getGasLimit({
     chainId,
     gasBuffer,
     client,
-    ...rest
+    ...rest,
   });
   const callResult = await callByChunks(splitCallsIntoChunks(calls, gasLimit), {
     gasBuffer,
     client,
     chainId,
     dropUnexecutedCalls,
-    signal
+    signal,
   });
   if (!retryFailedCallsWithGreaterLimit) {
     return callResult;
   }
-  const { gasLimitMultiplier: retryGasLimitMultiplier } = retryFailedCallsWithGreaterLimit;
+  const { gasLimitMultiplier: retryGasLimitMultiplier } =
+    retryFailedCallsWithGreaterLimit;
   async function retryFailedCalls(result) {
     if (result.results.every((r) => r.success)) {
       return result;
@@ -5165,21 +5975,27 @@ async function multicallByGasLimit(calls, {
       );
       return result;
     }
-    callsToRetry = callsToRetry.map((c) => ({ ...c, gasLimit: BigInt(c.gasLimit) * BigInt(retryGasLimitMultiplier) }));
-    const retryResult = await callByChunks(splitCallsIntoChunks(callsToRetry, gasLimit), {
-      gasBuffer,
-      client,
-      chainId,
-      dropUnexecutedCalls,
-      signal
-    });
+    callsToRetry = callsToRetry.map((c) => ({
+      ...c,
+      gasLimit: BigInt(c.gasLimit) * BigInt(retryGasLimitMultiplier),
+    }));
+    const retryResult = await callByChunks(
+      splitCallsIntoChunks(callsToRetry, gasLimit),
+      {
+        gasBuffer,
+        client,
+        chainId,
+        dropUnexecutedCalls,
+        signal,
+      }
+    );
     const resultsAfterRetry = [...result.results];
     for (const [retryIndex, originalIndex] of failedCallIndexes.entries()) {
       resultsAfterRetry[originalIndex] = retryResult.results[retryIndex];
     }
     return retryFailedCalls({
       results: resultsAfterRetry,
-      blockNumber: retryResult.blockNumber
+      blockNumber: retryResult.blockNumber,
     });
   }
   return retryFailedCalls(callResult);
@@ -5189,11 +6005,13 @@ function formatCallReturn([blockNumber, results, successIndex]) {
   return {
     lastSuccessIndex,
     blockNumber,
-    results: results.slice(0, lastSuccessIndex + 1).map(({ gasUsed, success, returnData }) => ({
-      gasUsed,
-      success,
-      result: returnData
-    }))
+    results: results
+      .slice(0, lastSuccessIndex + 1)
+      .map(({ gasUsed, success, returnData }) => ({
+        gasUsed,
+        success,
+        result: returnData,
+      })),
   };
 }
 async function call(calls, params) {
@@ -5203,39 +6021,51 @@ async function call(calls, params) {
     gasBuffer = getDefaultGasBuffer(chainId),
     blockConflictTolerance = getBlockConflictTolerance(chainId),
     dropUnexecutedCalls = false,
-    signal
+    signal,
   } = params;
   if (!calls.length) {
     return {
       results: [],
-      blockNumber: 0n
+      blockNumber: 0n,
     };
   }
   abortInvariant(signal, "Multicall aborted");
   const contract = getMulticallContract({ chainId, client });
   try {
-    const { result } = await contract.simulate.multicallWithGasLimitation([calls, gasBuffer]);
+    const { result } = await contract.simulate.multicallWithGasLimitation([
+      calls,
+      gasBuffer,
+    ]);
     const { results, lastSuccessIndex, blockNumber } = formatCallReturn(result);
     if (lastSuccessIndex === calls.length - 1) {
       return {
         results,
-        blockNumber
+        blockNumber,
       };
     }
     console.warn(
-      `Gas limit reached. Total num of ${calls.length} calls. First ${lastSuccessIndex + 1} calls executed. The remaining ${calls.length - lastSuccessIndex - 1} calls are not executed. Pls try adjust the gas limit per call.`
+      `Gas limit reached. Total num of ${calls.length} calls. First ${
+        lastSuccessIndex + 1
+      } calls executed. The remaining ${
+        calls.length - lastSuccessIndex - 1
+      } calls are not executed. Pls try adjust the gas limit per call.`
     );
     const remainingCalls = calls.slice(lastSuccessIndex + 1);
     if (dropUnexecutedCalls) {
       return {
-        results: [...results, ...remainingCalls.map(() => ({ result: "0x", gasUsed: 0n, success: false }))],
-        blockNumber
+        results: [
+          ...results,
+          ...remainingCalls.map(() => ({
+            result: "0x",
+            gasUsed: 0n,
+            success: false,
+          })),
+        ],
+        blockNumber,
       };
     }
-    const { results: remainingResults, blockNumber: nextBlockNumber } = await call(
-      calls.slice(lastSuccessIndex + 1),
-      params
-    );
+    const { results: remainingResults, blockNumber: nextBlockNumber } =
+      await call(calls.slice(lastSuccessIndex + 1), params);
     if (Number(nextBlockNumber - blockNumber) > blockConflictTolerance) {
       throw new Error(
         `Multicall failed because of block conflict. Latest calls are made at block ${nextBlockNumber} while last calls made at block ${blockNumber}. Block conflict tolerance is ${blockConflictTolerance}`
@@ -5244,7 +6074,7 @@ async function call(calls, params) {
     return {
       results: [...results, ...remainingResults],
       // Use the latest block number
-      blockNumber: nextBlockNumber
+      blockNumber: nextBlockNumber,
     };
   } catch (e) {
     if (isViemAbortError(e)) {
@@ -5255,8 +6085,12 @@ async function call(calls, params) {
 }
 async function callByChunks(chunks, params) {
   try {
-    const { blockConflictTolerance = getBlockConflictTolerance(params.chainId) } = params;
-    const callReturns = await Promise.all(chunks.map((chunk2) => call(chunk2, params)));
+    const {
+      blockConflictTolerance = getBlockConflictTolerance(params.chainId),
+    } = params;
+    const callReturns = await Promise.all(
+      chunks.map((chunk2) => call(chunk2, params))
+    );
     let minBlock = 0n;
     let maxBlock = 0n;
     let results = [];
@@ -5276,10 +6110,14 @@ async function callByChunks(chunks, params) {
     }
     return {
       results,
-      blockNumber: maxBlock
+      blockNumber: maxBlock,
     };
   } catch (e) {
-    if (e instanceof Error && e.message.includes("Storage invocations limit reached") && chunks[0].length > 1) {
+    if (
+      e instanceof Error &&
+      e.message.includes("Storage invocations limit reached") &&
+      chunks[0].length > 1
+    ) {
       return callByChunks(divideChunks(chunks), params);
     }
     throw e;
@@ -5332,30 +6170,30 @@ var InterfaceMulticall_default = [
       {
         internalType: "uint256",
         name: "timestamp",
-        type: "uint256"
-      }
+        type: "uint256",
+      },
     ],
     stateMutability: "view",
-    type: "function"
+    type: "function",
   },
   {
     inputs: [
       {
         internalType: "address",
         name: "addr",
-        type: "address"
-      }
+        type: "address",
+      },
     ],
     name: "getEthBalance",
     outputs: [
       {
         internalType: "uint256",
         name: "balance",
-        type: "uint256"
-      }
+        type: "uint256",
+      },
     ],
     stateMutability: "view",
-    type: "function"
+    type: "function",
   },
   {
     inputs: [
@@ -5364,62 +6202,61 @@ var InterfaceMulticall_default = [
           {
             internalType: "address",
             name: "target",
-            type: "address"
+            type: "address",
           },
           {
             internalType: "uint256",
             name: "gasLimit",
-            type: "uint256"
+            type: "uint256",
           },
           {
             internalType: "bytes",
             name: "callData",
-            type: "bytes"
-          }
+            type: "bytes",
+          },
         ],
         internalType: "struct PancakeInterfaceMulticall.Call[]",
         name: "calls",
-        type: "tuple[]"
-      }
+        type: "tuple[]",
+      },
     ],
     name: "multicall",
     outputs: [
       {
         internalType: "uint256",
         name: "blockNumber",
-        type: "uint256"
+        type: "uint256",
       },
       {
         components: [
           {
             internalType: "bool",
             name: "success",
-            type: "bool"
+            type: "bool",
           },
           {
             internalType: "uint256",
             name: "gasUsed",
-            type: "uint256"
+            type: "uint256",
           },
           {
             internalType: "bytes",
             name: "returnData",
-            type: "bytes"
-          }
+            type: "bytes",
+          },
         ],
         internalType: "struct PancakeInterfaceMulticall.Result[]",
         name: "returnData",
-        type: "tuple[]"
-      }
+        type: "tuple[]",
+      },
     ],
     stateMutability: "nonpayable",
-    type: "function"
-  }
+    type: "function",
+  },
 ];
 
 // evm/v3-router/providers/multicallProvider.ts
-var IMulticallProvider = class {
-};
+var IMulticallProvider = class {};
 
 // evm/v3-router/providers/multicallSwapProvider.ts
 var PancakeMulticallProvider = class extends IMulticallProvider {
@@ -5431,18 +6268,20 @@ var PancakeMulticallProvider = class extends IMulticallProvider {
     this.provider = provider;
   }
   async callSameFunctionOnMultipleContracts(params) {
-    const { addresses, functionName, functionParams, abi, additionalConfig } = params;
-    const gasLimitPerCall = additionalConfig?.gasLimitPerCall ?? this.gasLimitPerCall;
+    const { addresses, functionName, functionParams, abi, additionalConfig } =
+      params;
+    const gasLimitPerCall =
+      additionalConfig?.gasLimitPerCall ?? this.gasLimitPerCall;
     const callData = encodeFunctionData({
       abi,
       functionName,
-      args: functionParams
+      args: functionParams,
     });
     const calls = addresses.map((address) => {
       return {
         target: address,
         callData,
-        gasLimit: BigInt(gasLimitPerCall)
+        gasLimit: BigInt(gasLimitPerCall),
       };
     });
     const { results: result, blockNumber } = await multicallByGasLimit(calls, {
@@ -5451,7 +6290,7 @@ var PancakeMulticallProvider = class extends IMulticallProvider {
       dropUnexecutedCalls: additionalConfig?.dropUnexecutedCalls,
       chainId: this.chainId,
       client: this.provider,
-      signal: additionalConfig?.signal
+      signal: additionalConfig?.signal,
     });
     const results = [];
     const gasUsedForSuccess = [];
@@ -5460,7 +6299,7 @@ var PancakeMulticallProvider = class extends IMulticallProvider {
       if (callResult === "0x" || !success) {
         results.push({
           success: false,
-          returnData: callResult
+          returnData: callResult,
         });
         gasUsedForFail.push(Number(gasUsed));
         continue;
@@ -5471,14 +6310,14 @@ var PancakeMulticallProvider = class extends IMulticallProvider {
           result: decodeFunctionResult({
             abi,
             functionName,
-            data: callResult
-          })
+            data: callResult,
+          }),
         });
         gasUsedForSuccess.push(Number(gasUsed));
       } catch (e) {
         results.push({
           success: false,
-          returnData: callResult
+          returnData: callResult,
         });
       }
     }
@@ -5486,22 +6325,24 @@ var PancakeMulticallProvider = class extends IMulticallProvider {
       blockNumber,
       results,
       approxGasUsedPerSuccessCall: stats.percentile(gasUsedForSuccess, 99),
-      approxGasUsedPerFailCall: stats.percentile(gasUsedForFail, 99)
+      approxGasUsedPerFailCall: stats.percentile(gasUsedForFail, 99),
     };
   }
   async callSameFunctionOnContractWithMultipleParams(params) {
-    const { address, functionName, functionParams, abi, additionalConfig } = params;
-    const gasLimitPerCall = additionalConfig?.gasLimitPerCall ?? this.gasLimitPerCall;
+    const { address, functionName, functionParams, abi, additionalConfig } =
+      params;
+    const gasLimitPerCall =
+      additionalConfig?.gasLimitPerCall ?? this.gasLimitPerCall;
     const calls = functionParams.map((functionParam) => {
       const callData = encodeFunctionData({
         abi,
         functionName,
-        args: functionParam
+        args: functionParam,
       });
       return {
         target: address,
         callData,
-        gasLimit: BigInt(gasLimitPerCall)
+        gasLimit: BigInt(gasLimitPerCall),
       };
     });
     const { results: result, blockNumber } = await multicallByGasLimit(calls, {
@@ -5510,7 +6351,7 @@ var PancakeMulticallProvider = class extends IMulticallProvider {
       dropUnexecutedCalls: additionalConfig?.dropUnexecutedCalls,
       chainId: this.chainId,
       client: this.provider,
-      signal: additionalConfig?.signal
+      signal: additionalConfig?.signal,
     });
     const results = [];
     const gasUsedForSuccess = [];
@@ -5519,7 +6360,7 @@ var PancakeMulticallProvider = class extends IMulticallProvider {
       if (callResult === "0x" || !success) {
         results.push({
           success: false,
-          returnData: callResult
+          returnData: callResult,
         });
         gasUsedForFail.push(Number(gasUsed));
         continue;
@@ -5530,14 +6371,14 @@ var PancakeMulticallProvider = class extends IMulticallProvider {
           result: decodeFunctionResult({
             abi,
             functionName,
-            data: callResult
-          })
+            data: callResult,
+          }),
         });
         gasUsedForSuccess.push(Number(gasUsed));
       } catch (e) {
         results.push({
           success: false,
-          returnData: callResult
+          returnData: callResult,
         });
       }
     }
@@ -5545,22 +6386,24 @@ var PancakeMulticallProvider = class extends IMulticallProvider {
       blockNumber,
       results,
       approxGasUsedPerSuccessCall: stats.percentile(gasUsedForSuccess, 99),
-      approxGasUsedPerFailCall: stats.percentile(gasUsedForFail, 99)
+      approxGasUsedPerFailCall: stats.percentile(gasUsedForFail, 99),
     };
   }
   async callMultipleFunctionsOnSameContract(params) {
-    const { address, functionNames, functionParams, additionalConfig, abi } = params;
-    const gasLimitPerCall = additionalConfig?.gasLimitPerCall ?? this.gasLimitPerCall;
+    const { address, functionNames, functionParams, additionalConfig, abi } =
+      params;
+    const gasLimitPerCall =
+      additionalConfig?.gasLimitPerCall ?? this.gasLimitPerCall;
     const calls = functionNames.map((functionName, i) => {
       const callData = encodeFunctionData({
         abi,
         functionName,
-        args: functionParams ? functionParams[i] : []
+        args: functionParams ? functionParams[i] : [],
       });
       return {
         target: address,
         callData,
-        gasLimit: BigInt(gasLimitPerCall)
+        gasLimit: BigInt(gasLimitPerCall),
       };
     });
     const { results: result, blockNumber } = await multicallByGasLimit(calls, {
@@ -5569,16 +6412,19 @@ var PancakeMulticallProvider = class extends IMulticallProvider {
       dropUnexecutedCalls: additionalConfig?.dropUnexecutedCalls,
       chainId: this.chainId,
       client: this.provider,
-      signal: additionalConfig?.signal
+      signal: additionalConfig?.signal,
     });
     const results = [];
     const gasUsedForSuccess = [];
     const gasUsedForFail = [];
-    for (const [i, { result: callResult, success, gasUsed }] of result.entries()) {
+    for (const [
+      i,
+      { result: callResult, success, gasUsed },
+    ] of result.entries()) {
       if (callResult === "0x" || !success) {
         results.push({
           success: false,
-          returnData: callResult
+          returnData: callResult,
         });
         gasUsedForFail.push(Number(gasUsed));
         continue;
@@ -5589,14 +6435,14 @@ var PancakeMulticallProvider = class extends IMulticallProvider {
           result: decodeFunctionResult({
             abi,
             functionName: functionNames[i],
-            data: callResult
-          })
+            data: callResult,
+          }),
         });
         gasUsedForSuccess.push(Number(gasUsed));
       } catch (e) {
         results.push({
           success: false,
-          returnData: callResult
+          returnData: callResult,
         });
       }
     }
@@ -5604,7 +6450,7 @@ var PancakeMulticallProvider = class extends IMulticallProvider {
       blockNumber,
       results,
       approxGasUsedPerSuccessCall: stats.percentile(gasUsedForSuccess, 99),
-      approxGasUsedPerFailCall: stats.percentile(gasUsedForFail, 99)
+      approxGasUsedPerFailCall: stats.percentile(gasUsedForFail, 99),
     };
   }
 };
@@ -5613,7 +6459,8 @@ PancakeMulticallProvider.abi = InterfaceMulticall_default;
 // evm/v3-router/providers/onChainQuoteProvider.ts
 var DEFAULT_BATCH_RETRIES = 2;
 var SUCCESS_RATE_CONFIG = {
-  [84532 /* BASE_SEPOLIA */]: 0.1
+  // [84532 /* BASE_SEPOLIA */]: 0.1,
+  [943 /* PULSECHAIN_TESTNET */]: 0.1,
 };
 var BlockConflictError = class extends Error {
   constructor() {
@@ -5649,77 +6496,118 @@ var retryControllerFactory = ({ retries }) => {
   const errors = [];
   let remainingRetries = retries || 0;
   return {
-    shouldRetry: (error) => !isAbortError(error) && remainingRetries > 0 && errors.every((err) => err.name !== error.name),
+    shouldRetry: (error) =>
+      !isAbortError(error) &&
+      remainingRetries > 0 &&
+      errors.every((err) => err.name !== error.name),
     onRetry: (error) => {
       errors.push(error);
       remainingRetries -= 1;
     },
-    getErrorsOnPreviousRetries: () => errors
+    getErrorsOnPreviousRetries: () => errors,
   };
 };
-var defaultAdjustQuoteForGas = ({ isExactIn, quote, gasCostInToken }) => isExactIn ? quote.subtract(gasCostInToken) : quote.add(gasCostInToken);
-function onChainQuoteProviderFactory({ getQuoteFunctionName, getQuoterAddress, abi, getCallInputs }) {
+var defaultAdjustQuoteForGas = ({ isExactIn, quote, gasCostInToken }) =>
+  isExactIn ? quote.subtract(gasCostInToken) : quote.add(gasCostInToken);
+function onChainQuoteProviderFactory({
+  getQuoteFunctionName,
+  getQuoterAddress,
+  abi,
+  getCallInputs,
+}) {
   return function createOnChainQuoteProvider({
     onChainProvider,
     gasLimit,
     multicallConfigs: multicallConfigsOverride,
-    onAdjustQuoteForGas = defaultAdjustQuoteForGas
+    onAdjustQuoteForGas = defaultAdjustQuoteForGas,
   }) {
     const createGetRoutesWithQuotes = (isExactIn = true) => {
       const functionName = getQuoteFunctionName(isExactIn);
-      const adjustQuoteForGas = ({ quote, gasCostInToken }) => onAdjustQuoteForGas({ quote, gasCostInToken, isExactIn });
-      return async function getRoutesWithQuote(routes, { blockNumber: blockNumberFromConfig, gasModel, retry: retryOptions, signal }) {
+      const adjustQuoteForGas = ({ quote, gasCostInToken }) =>
+        onAdjustQuoteForGas({ quote, gasCostInToken, isExactIn });
+      return async function getRoutesWithQuote(
+        routes,
+        {
+          blockNumber: blockNumberFromConfig,
+          gasModel,
+          retry: retryOptions,
+          signal,
+        }
+      ) {
         if (!routes.length) {
           return [];
         }
         const {
           amount: {
-            currency: { chainId }
-          }
+            currency: { chainId },
+          },
         } = routes[0];
         const quoterAddress = getQuoterAddress(chainId);
         const minSuccessRate = SUCCESS_RATE_CONFIG[chainId];
-        const multicallConfigs = multicallConfigsOverride?.[chainId] || BATCH_MULTICALL_CONFIGS[chainId] || BATCH_MULTICALL_CONFIGS[84532 /* BASE_SEPOLIA */];
+        const multicallConfigs =
+          multicallConfigsOverride?.[chainId] ||
+          BATCH_MULTICALL_CONFIGS[chainId] ||
+          // BATCH_MULTICALL_CONFIGS[84532 /* BASE_SEPOLIA */];
+          BATCH_MULTICALL_CONFIGS[943 /* PULSECHAIN_TESTNET */];
         const {
-          defaultConfig: { gasLimitPerCall: defaultGasLimitPerCall, dropUnexecutedCalls }
+          defaultConfig: {
+            gasLimitPerCall: defaultGasLimitPerCall,
+            dropUnexecutedCalls,
+          },
         } = multicallConfigs;
         const chainProvider = onChainProvider({ chainId });
         const providerConfig = { blockNumber: blockNumberFromConfig };
-        const multicall2Provider = new PancakeMulticallProvider(chainId, chainProvider, defaultGasLimitPerCall);
+        const multicall2Provider = new PancakeMulticallProvider(
+          chainId,
+          chainProvider,
+          defaultGasLimitPerCall
+        );
         const inputs = routes.map((route) => getCallInputs(route, isExactIn));
         const retryOptionsWithDefault = {
           retries: DEFAULT_BATCH_RETRIES,
           minTimeout: 25,
           maxTimeout: 250,
-          ...retryOptions
+          ...retryOptions,
         };
-        const { shouldRetry, onRetry } = retryControllerFactory(retryOptionsWithDefault);
+        const { shouldRetry, onRetry } = retryControllerFactory(
+          retryOptionsWithDefault
+        );
         async function getQuotes({ gasLimitPerCall }) {
           try {
-            const { results, blockNumber, approxGasUsedPerSuccessCall } = await multicall2Provider.callSameFunctionOnContractWithMultipleParams({
-              address: quoterAddress,
-              abi,
-              functionName,
-              functionParams: inputs,
-              providerConfig,
-              additionalConfig: {
-                dropUnexecutedCalls,
-                gasLimitPerCall,
-                gasLimit,
-                signal
-              }
-            });
-            const successRateError = validateSuccessRate(results, minSuccessRate);
+            const { results, blockNumber, approxGasUsedPerSuccessCall } =
+              await multicall2Provider.callSameFunctionOnContractWithMultipleParams(
+                {
+                  address: quoterAddress,
+                  abi,
+                  functionName,
+                  functionParams: inputs,
+                  providerConfig,
+                  additionalConfig: {
+                    dropUnexecutedCalls,
+                    gasLimitPerCall,
+                    gasLimit,
+                    signal,
+                  },
+                }
+              );
+            const successRateError = validateSuccessRate(
+              results,
+              minSuccessRate
+            );
             if (successRateError) {
               throw successRateError;
             }
             return {
               results,
               blockNumber,
-              approxGasUsedPerSuccessCall
+              approxGasUsedPerSuccessCall,
             };
           } catch (err) {
-            if (err instanceof SuccessRateError || err instanceof BlockConflictError || isAbortError(err)) {
+            if (
+              err instanceof SuccessRateError ||
+              err instanceof BlockConflictError ||
+              isAbortError(err)
+            ) {
               throw err;
             }
             const slicedErrMsg = err.message.slice(0, 500);
@@ -5727,7 +6615,9 @@ function onChainQuoteProviderFactory({ getQuoteFunctionName, getQuoterAddress, a
               throw new ProviderBlockHeaderError(slicedErrMsg);
             }
             if (err.message.includes("timeout")) {
-              throw new ProviderTimeoutError(`Request had ${inputs.length} inputs. ${slicedErrMsg}`);
+              throw new ProviderTimeoutError(
+                `Request had ${inputs.length} inputs. ${slicedErrMsg}`
+              );
             }
             if (err.message.includes("out of gas")) {
               throw new ProviderGasError(slicedErrMsg);
@@ -5738,11 +6628,12 @@ function onChainQuoteProviderFactory({ getQuoteFunctionName, getQuoterAddress, a
         const quoteResult = await retry(async (bail) => {
           try {
             const quotes = await getQuotes({
-              gasLimitPerCall: defaultGasLimitPerCall
+              gasLimitPerCall: defaultGasLimitPerCall,
             });
             return quotes;
           } catch (e) {
-            const error = e instanceof Error ? e : new Error(`Unexpected error type ${e}`);
+            const error =
+              e instanceof Error ? e : new Error(`Unexpected error type ${e}`);
             if (!shouldRetry(error)) {
               return bail(error);
             }
@@ -5750,14 +6641,14 @@ function onChainQuoteProviderFactory({ getQuoteFunctionName, getQuoterAddress, a
               onRetry(error);
               const { successRateFailureOverrides } = multicallConfigs;
               return getQuotes({
-                gasLimitPerCall: successRateFailureOverrides.gasLimitPerCall
+                gasLimitPerCall: successRateFailureOverrides.gasLimitPerCall,
               });
             }
             if (error instanceof ProviderGasError) {
               onRetry(error);
               const { gasErrorFailureOverride } = multicallConfigs;
               return getQuotes({
-                gasLimitPerCall: gasErrorFailureOverride.gasLimitPerCall
+                gasLimitPerCall: gasErrorFailureOverride.gasLimitPerCall,
               });
             }
             throw error;
@@ -5767,26 +6658,42 @@ function onChainQuoteProviderFactory({ getQuoteFunctionName, getQuoterAddress, a
           throw new Error(`Unexpected empty quote result ${quoteResult}`);
         }
         const { results: quoteResults } = quoteResult;
-        const routesWithQuote = processQuoteResults(quoteResults, routes, gasModel, adjustQuoteForGas, isExactIn);
+        const routesWithQuote = processQuoteResults(
+          quoteResults,
+          routes,
+          gasModel,
+          adjustQuoteForGas,
+          isExactIn
+        );
         return routesWithQuote;
       };
     };
     return {
       getRouteWithQuotesExactIn: createGetRoutesWithQuotes(true),
-      getRouteWithQuotesExactOut: createGetRoutesWithQuotes(false)
+      getRouteWithQuotesExactOut: createGetRoutesWithQuotes(false),
     };
   };
 }
 function validateSuccessRate(allResults, quoteMinSuccessRate) {
   const numResults = allResults.length;
-  const numSuccessResults = allResults.filter((result) => result.success).length;
-  const successRate = 1 * numSuccessResults / numResults;
+  const numSuccessResults = allResults.filter(
+    (result) => result.success
+  ).length;
+  const successRate = (1 * numSuccessResults) / numResults;
   if (successRate < quoteMinSuccessRate) {
-    return new SuccessRateError(`Quote success rate below threshold of ${quoteMinSuccessRate}: ${successRate}`);
+    return new SuccessRateError(
+      `Quote success rate below threshold of ${quoteMinSuccessRate}: ${successRate}`
+    );
   }
   return void 0;
 }
-function processQuoteResults(quoteResults, routes, gasModel, adjustQuoteForGas, isExactIn) {
+function processQuoteResults(
+  quoteResults,
+  routes,
+  gasModel,
+  adjustQuoteForGas,
+  isExactIn
+) {
   const routesWithQuote = [];
   for (let i = 0; i < quoteResults.length; i += 1) {
     const route = routes[i];
@@ -5799,14 +6706,23 @@ function processQuoteResults(quoteResults, routes, gasModel, adjustQuoteForGas, 
       continue;
     }
     const quoteCurrency = getQuoteCurrency(route, route.amount.currency);
-    const quote = isExactIn ? CurrencyAmount.fromRawAmount(quoteCurrency.wrapped, quoteResult.result[0][quoteResult.result[0].length - 1].toString()) : CurrencyAmount.fromRawAmount(quoteCurrency.wrapped, quoteResult.result[1][quoteResult.result[1].length - 1].toString());
-    const { gasEstimate, gasCostInToken, gasCostInUSD } = gasModel.estimateGasCost(
-      {
-        ...route,
-        quote
-      },
-      { initializedTickCrossedList: quoteResult.result[3] }
-    );
+    const quote = isExactIn
+      ? CurrencyAmount.fromRawAmount(
+          quoteCurrency.wrapped,
+          quoteResult.result[0][quoteResult.result[0].length - 1].toString()
+        )
+      : CurrencyAmount.fromRawAmount(
+          quoteCurrency.wrapped,
+          quoteResult.result[1][quoteResult.result[1].length - 1].toString()
+        );
+    const { gasEstimate, gasCostInToken, gasCostInUSD } =
+      gasModel.estimateGasCost(
+        {
+          ...route,
+          quote,
+        },
+        { initializedTickCrossedList: quoteResult.result[3] }
+      );
     routesWithQuote.push({
       ...route,
       quote,
@@ -5817,7 +6733,7 @@ function processQuoteResults(quoteResults, routes, gasModel, adjustQuoteForGas, 
       sqrtPriceX96AfterList: quoteResult.result[2],
       gasEstimate,
       gasCostInToken,
-      gasCostInUSD
+      gasCostInUSD,
     });
   }
   return routesWithQuote;
@@ -5828,17 +6744,18 @@ var createMixedRouteOnChainQuoteProvider = onChainQuoteProviderFactory({
   abi: algebraQuoterV2ABI,
   getCallInputs: (route, isExactIn) => [
     encodeMixedRouteToPath(route, !isExactIn, false),
-    `0x${route.amount.quotient.toString(16)}`
-  ]
+    `0x${route.amount.quotient.toString(16)}`,
+  ],
 });
 var createV3OnChainQuoteProvider = onChainQuoteProviderFactory({
   getQuoterAddress: (chainId) => V3_QUOTER_ADDRESSES[chainId],
-  getQuoteFunctionName: (isExactIn) => isExactIn ? "quoteExactInput" : "quoteExactOutput",
+  getQuoteFunctionName: (isExactIn) =>
+    isExactIn ? "quoteExactInput" : "quoteExactOutput",
   abi: algebraQuoterV2ABI,
   getCallInputs: (route, isExactIn) => [
     encodeMixedRouteToPath(route, !isExactIn, true),
-    `0x${route.amount.quotient.toString(16)}`
-  ]
+    `0x${route.amount.quotient.toString(16)}`,
+  ],
 });
 
 // evm/v3-router/providers/quoteProviders.ts
@@ -5848,14 +6765,27 @@ function createQuoteProvider(config) {
   const mixedRouteOnChainQuoteProvider = createMixedRouteOnChainQuoteProvider({
     onChainProvider,
     multicallConfigs,
-    gasLimit
+    gasLimit,
   });
-  const v3OnChainQuoteProvider = createV3OnChainQuoteProvider({ onChainProvider, multicallConfigs, gasLimit });
+  const v3OnChainQuoteProvider = createV3OnChainQuoteProvider({
+    onChainProvider,
+    multicallConfigs,
+    gasLimit,
+  });
   const createGetRouteWithQuotes = (isExactIn = true) => {
-    const getOffChainQuotes = isExactIn ? offChainQuoteProvider.getRouteWithQuotesExactIn : offChainQuoteProvider.getRouteWithQuotesExactOut;
-    const getMixedRouteQuotes = isExactIn ? mixedRouteOnChainQuoteProvider.getRouteWithQuotesExactIn : mixedRouteOnChainQuoteProvider.getRouteWithQuotesExactOut;
-    const getV3Quotes = isExactIn ? v3OnChainQuoteProvider.getRouteWithQuotesExactIn : v3OnChainQuoteProvider.getRouteWithQuotesExactOut;
-    return async function getRoutesWithQuotes(routes, { blockNumber, gasModel, signal }) {
+    const getOffChainQuotes = isExactIn
+      ? offChainQuoteProvider.getRouteWithQuotesExactIn
+      : offChainQuoteProvider.getRouteWithQuotesExactOut;
+    const getMixedRouteQuotes = isExactIn
+      ? mixedRouteOnChainQuoteProvider.getRouteWithQuotesExactIn
+      : mixedRouteOnChainQuoteProvider.getRouteWithQuotesExactOut;
+    const getV3Quotes = isExactIn
+      ? v3OnChainQuoteProvider.getRouteWithQuotesExactIn
+      : v3OnChainQuoteProvider.getRouteWithQuotesExactOut;
+    return async function getRoutesWithQuotes(
+      routes,
+      { blockNumber, gasModel, signal }
+    ) {
       const v3SingleHopRoutes = [];
       const v3MultihopRoutes = [];
       const mixedRoutesHaveV3Pool = [];
@@ -5881,108 +6811,141 @@ function createQuoteProvider(config) {
         routesCanQuoteOffChain.push(route);
       }
       const results = await Promise.allSettled([
-        getOffChainQuotes(routesCanQuoteOffChain, { blockNumber, gasModel, signal }),
-        getMixedRouteQuotes(mixedRoutesHaveV3Pool, { blockNumber, gasModel, retry: { retries: 0 }, signal }),
+        getOffChainQuotes(routesCanQuoteOffChain, {
+          blockNumber,
+          gasModel,
+          signal,
+        }),
+        getMixedRouteQuotes(mixedRoutesHaveV3Pool, {
+          blockNumber,
+          gasModel,
+          retry: { retries: 0 },
+          signal,
+        }),
         getV3Quotes(v3SingleHopRoutes, { blockNumber, gasModel, signal }),
-        getV3Quotes(v3MultihopRoutes, { blockNumber, gasModel, retry: { retries: 1 }, signal })
+        getV3Quotes(v3MultihopRoutes, {
+          blockNumber,
+          gasModel,
+          retry: { retries: 1 },
+          signal,
+        }),
       ]);
       if (results.every((result) => result.status === "rejected")) {
         throw new Error(results.map((result) => result.reason).join(","));
       }
-      return results.filter((result) => result.status === "fulfilled").reduce((acc, cur) => [...acc, ...cur.value], []);
+      return results
+        .filter((result) => result.status === "fulfilled")
+        .reduce((acc, cur) => [...acc, ...cur.value], []);
     };
   };
   return {
     getRouteWithQuotesExactIn: createGetRouteWithQuotes(true),
     getRouteWithQuotesExactOut: createGetRouteWithQuotes(false),
-    getConfig: () => config
+    getConfig: () => config,
   };
 }
-var baseSepoliaChain = /* @__PURE__ */ defineChain({
-  id: 84532,
-  network: "baseSepolia",
-  name: "Base Sepolia",
-  nativeCurrency: { name: "Ether", symbol: "ETH", decimals: 18 },
-  rpcUrls: {
-    default: {
-      http: ["https://base-sepolia-rpc.publicnode.com"]
-    },
-    public: {
-      http: ["https://base-sepolia-rpc.publicnode.com"]
-    }
-  },
-  blockExplorers: {
-    default: {
-      name: "Basescan",
-      url: "https://sepolia.basescan.org"
-    },
-    etherscan: {
-      name: "Basescan",
-      url: "https://sepolia.basescan.org"
-    }
-  },
-  contracts: {
-    multicall3: {
-      address: "0xca11bde05977b3631167028862be2a173976ca11",
-      blockCreated: 1059647
-    }
-  }
-});
-var pulsechainTestnetChain = /* @__PURE__ */ defineChain({
+// var baseSepoliaChain = /* @__PURE__ */ defineChain({
+//   id: 84532,
+//   network: "baseSepolia",
+//   name: "Base Sepolia",
+//   nativeCurrency: { name: "Ether", symbol: "ETH", decimals: 18 },
+//   rpcUrls: {
+//     default: {
+//       http: ["https://base-sepolia-rpc.publicnode.com"],
+//     },
+//     public: {
+//       http: ["https://base-sepolia-rpc.publicnode.com"],
+//     },
+//   },
+//   blockExplorers: {
+//     default: {
+//       name: "Basescan",
+//       url: "https://sepolia.basescan.org",
+//     },
+//     etherscan: {
+//       name: "Basescan",
+//       url: "https://sepolia.basescan.org",
+//     },
+//   },
+//   contracts: {
+//     multicall3: {
+//       address: "0xca11bde05977b3631167028862be2a173976ca11",
+//       blockCreated: 1059647,
+//     },
+//   },
+// });
+var pulsechainTestnetChain = /* @__PURE__ */ viem.defineChain({
   id: 943,
   network: "pulsechain-testnet",
   name: "PulseChain Testnet",
   nativeCurrency: { name: "tPLS", symbol: "tPLS", decimals: 18 },
   rpcUrls: {
     default: {
-      http: ["https://rpc.v4.testnet.pulsechain.com"]
+      http: ["https://rpc.v4.testnet.pulsechain.com"],
     },
     public: {
-      http: ["https://rpc.v4.testnet.pulsechain.com"]
-    }
+      http: ["https://rpc-testnet-pulsechain.g4mm4.io"],
+    },
   },
   blockExplorers: {
     default: {
       name: "PulseChain Testnet Explorer",
-      url: "https://otter-testnet-pulsechain.g4mm4.io/"
-    }
-  }
+      url: "https://otter-testnet-pulsechain.g4mm4.io/",
+    },
+  },
+  contracts: {
+    multicall3: {
+      address: "0x3aA5461Db8c839973CDfb374778846B0454C0837",
+      blockCreated: 22372155,
+    },
+  },
 });
 var publicClient = {
-  [84532 /* BASE_SEPOLIA */]: createPublicClient({
-    chain: baseSepoliaChain,
-    transport: fallback([http("https://base-sepolia-rpc.publicnode.com"), http("https://sepolia.base.org")], { rank: false }),
-    batch: {
-      multicall: {
-        batchSize: 1024 * 200
-      }
-    }
-  }),
-  [943 /* PULSECHAIN_TESTNET */]: createPublicClient({
+  // [84532 /* BASE_SEPOLIA */]: createPublicClient({
+  //   chain: baseSepoliaChain,
+  //   transport: fallback(
+  //     [
+  //       http("https://base-sepolia-rpc.publicnode.com"),
+  //       http("https://sepolia.base.org"),
+  //     ],
+  //     { rank: false }
+  //   ),
+  //   batch: {
+  //     multicall: {
+  //       batchSize: 1024 * 200,
+  //     },
+  //   },
+  // }),
+  [943 /* PULSECHAIN_TESTNET */]: viem.createPublicClient({
     chain: pulsechainTestnetChain,
-    transport: http("https://rpc.v4.testnet.pulsechain.com"),
+    transport: viem.fallback([
+      viem.http("https://rpc.v4.testnet.pulsechain.com"),
+      viem.http("https://rpc-testnet-pulsechain.g4mm4.io"),
+    ]),
     batch: {
       multicall: {
-        batchSize: 1024 * 200
-      }
-    }
-  })
+        batchSize: 1024 * 200,
+      },
+    },
+  }),
 };
 var quoteProvider = {
-  [84532 /* BASE_SEPOLIA */]: createQuoteProvider({
-    onChainProvider: () => publicClient[84532 /* BASE_SEPOLIA */]
-  }),
+  // [84532 /* BASE_SEPOLIA */]: createQuoteProvider({
+  //   onChainProvider: () => publicClient[84532 /* BASE_SEPOLIA */],
+  // }),
   [943 /* PULSECHAIN_TESTNET */]: createQuoteProvider({
-    onChainProvider: () => publicClient[943 /* PULSECHAIN_TESTNET */]
-  })
+    onChainProvider: () => publicClient[943 /* PULSECHAIN_TESTNET */],
+  }),
 };
 var v3SubgraphClient = {
-  [84532 /* BASE_SEPOLIA */]: new GraphQLClient("https://api.studio.thegraph.com/query/50593/integral-v12/v1.0.0"),
-  [943 /* PULSECHAIN_TESTNET */]: new GraphQLClient("")
+  // [84532 /* BASE_SEPOLIA */]: new graphqlRequest.GraphQLClient(
+  //   "https://api.studio.thegraph.com/query/50593/integral-v12/v1.0.0"
+  // ),
+  [943 /* PULSECHAIN_TESTNET */]: new graphqlRequest.GraphQLClient(""),
 };
 var v2SubgraphClient = {
-  [84532 /* BASE_SEPOLIA */]: new GraphQLClient(""),
-  [943 /* PULSECHAIN_TESTNET */]: new GraphQLClient("")
+  // [84532 /* BASE_SEPOLIA */]: new graphqlRequest.GraphQLClient(""),
+  [943 /* PULSECHAIN_TESTNET */]: new graphqlRequest.GraphQLClient(""),
 };
 
 // evm/v3-router/schema.ts
@@ -5990,7 +6953,7 @@ var schema_exports = {};
 __export(schema_exports, {
   zPools: () => zPools,
   zRouterGetParams: () => zRouterGetParams,
-  zRouterPostParams: () => zRouterPostParams
+  zRouterPostParams: () => zRouterPostParams,
 });
 var zChainId = z.nativeEnum(ChainId);
 var zFee = z.number();
@@ -5999,76 +6962,90 @@ var zPoolType = z.nativeEnum(PoolType);
 var zPoolTypes = z.array(zPoolType);
 var zAddress = z.custom((val) => /^0x[a-fA-F0-9]{40}$/.test(val));
 var zBigNumber = z.string().regex(/^[0-9]+$/);
-var zCurrency = z.object({
-  address: zAddress,
-  decimals: z.number(),
-  symbol: z.string()
-}).required();
-var zCurrencyAmount = z.object({
-  currency: zCurrency.required(),
-  value: zBigNumber
-}).required();
-var zV2Pool = z.object({
-  type: zPoolType,
-  reserve0: zCurrencyAmount,
-  reserve1: zCurrencyAmount
-}).required();
-var zV3Pool = z.object({
-  type: zPoolType,
-  token0: zCurrency,
-  token1: zCurrency,
-  fee: zFee,
-  liquidity: zBigNumber,
-  sqrtRatioX96: zBigNumber,
-  tick: z.number(),
-  address: zAddress,
-  token0ProtocolFee: z.string(),
-  token1ProtocolFee: z.string()
-}).required();
-var zStablePool = z.object({
-  type: zPoolType,
-  reserve0: zCurrencyAmount,
-  reserve1: zCurrencyAmount
-}).required();
+var zCurrency = z
+  .object({
+    address: zAddress,
+    decimals: z.number(),
+    symbol: z.string(),
+  })
+  .required();
+var zCurrencyAmount = z
+  .object({
+    currency: zCurrency.required(),
+    value: zBigNumber,
+  })
+  .required();
+var zV2Pool = z
+  .object({
+    type: zPoolType,
+    reserve0: zCurrencyAmount,
+    reserve1: zCurrencyAmount,
+  })
+  .required();
+var zV3Pool = z
+  .object({
+    type: zPoolType,
+    token0: zCurrency,
+    token1: zCurrency,
+    fee: zFee,
+    liquidity: zBigNumber,
+    sqrtRatioX96: zBigNumber,
+    tick: z.number(),
+    address: zAddress,
+    token0ProtocolFee: z.string(),
+    token1ProtocolFee: z.string(),
+  })
+  .required();
+var zStablePool = z
+  .object({
+    type: zPoolType,
+    reserve0: zCurrencyAmount,
+    reserve1: zCurrencyAmount,
+  })
+  .required();
 var zPools = z.array(z.union([zV2Pool, zV3Pool, zStablePool]));
-var zRouterGetParams = z.object({
-  chainId: zChainId,
-  tradeType: zTradeType,
-  amount: zCurrencyAmount,
-  currency: zCurrency,
-  gasPriceWei: zBigNumber.optional(),
-  maxHops: z.number().optional(),
-  maxSplits: z.number().optional(),
-  blockNumber: zBigNumber.optional(),
-  poolTypes: zPoolTypes.optional()
-}).required({
-  chainId: true,
-  tradeType: true,
-  amount: true,
-  currency: true,
-  candidatePools: true
-});
-var zRouterPostParams = z.object({
-  chainId: zChainId,
-  tradeType: zTradeType,
-  amount: zCurrencyAmount,
-  currency: zCurrency,
-  candidatePools: zPools,
-  gasPriceWei: zBigNumber.optional(),
-  maxHops: z.number().optional(),
-  maxSplits: z.number().optional(),
-  blockNumber: zBigNumber.optional(),
-  poolTypes: zPoolTypes.optional(),
-  onChainQuoterGasLimit: zBigNumber.optional(),
-  nativeCurrencyUsdPrice: z.number().optional(),
-  quoteCurrencyUsdPrice: z.number().optional()
-}).required({
-  chainId: true,
-  tradeType: true,
-  amount: true,
-  currency: true,
-  candidatePools: true
-});
+var zRouterGetParams = z
+  .object({
+    chainId: zChainId,
+    tradeType: zTradeType,
+    amount: zCurrencyAmount,
+    currency: zCurrency,
+    gasPriceWei: zBigNumber.optional(),
+    maxHops: z.number().optional(),
+    maxSplits: z.number().optional(),
+    blockNumber: zBigNumber.optional(),
+    poolTypes: zPoolTypes.optional(),
+  })
+  .required({
+    chainId: true,
+    tradeType: true,
+    amount: true,
+    currency: true,
+    candidatePools: true,
+  });
+var zRouterPostParams = z
+  .object({
+    chainId: zChainId,
+    tradeType: zTradeType,
+    amount: zCurrencyAmount,
+    currency: zCurrency,
+    candidatePools: zPools,
+    gasPriceWei: zBigNumber.optional(),
+    maxHops: z.number().optional(),
+    maxSplits: z.number().optional(),
+    blockNumber: zBigNumber.optional(),
+    poolTypes: zPoolTypes.optional(),
+    onChainQuoterGasLimit: zBigNumber.optional(),
+    nativeCurrencyUsdPrice: z.number().optional(),
+    quoteCurrencyUsdPrice: z.number().optional(),
+  })
+  .required({
+    chainId: true,
+    tradeType: true,
+    amount: true,
+    currency: true,
+    candidatePools: true,
+  });
 
 // evm/abis/IMulticallExtended.ts
 var multicallExtendedAbi = [
@@ -6077,68 +7054,68 @@ var multicallExtendedAbi = [
       {
         internalType: "bytes32",
         name: "previousBlockhash",
-        type: "bytes32"
+        type: "bytes32",
       },
       {
         internalType: "bytes[]",
         name: "data",
-        type: "bytes[]"
-      }
+        type: "bytes[]",
+      },
     ],
     name: "multicall",
     outputs: [
       {
         internalType: "bytes[]",
         name: "results",
-        type: "bytes[]"
-      }
+        type: "bytes[]",
+      },
     ],
     stateMutability: "payable",
-    type: "function"
+    type: "function",
   },
   {
     inputs: [
       {
         internalType: "uint256",
         name: "deadline",
-        type: "uint256"
+        type: "uint256",
       },
       {
         internalType: "bytes[]",
         name: "data",
-        type: "bytes[]"
-      }
+        type: "bytes[]",
+      },
     ],
     name: "multicall",
     outputs: [
       {
         internalType: "bytes[]",
         name: "results",
-        type: "bytes[]"
-      }
+        type: "bytes[]",
+      },
     ],
     stateMutability: "payable",
-    type: "function"
+    type: "function",
   },
   {
     inputs: [
       {
         internalType: "bytes[]",
         name: "data",
-        type: "bytes[]"
-      }
+        type: "bytes[]",
+      },
     ],
     name: "multicall",
     outputs: [
       {
         internalType: "bytes[]",
         name: "results",
-        type: "bytes[]"
-      }
+        type: "bytes[]",
+      },
     ],
     stateMutability: "payable",
-    type: "function"
-  }
+    type: "function",
+  },
 ];
 
 // evm/v3-router/utils/multicallExtended.ts
@@ -6153,8 +7130,7 @@ var _MulticallExtended = class {
    * Cannot be constructed.
    */
   // eslint-disable-next-line no-useless-constructor, @typescript-eslint/no-empty-function
-  constructor() {
-  }
+  constructor() {}
   static encodeMulticall(calldatas, validation) {
     if (typeof validation === "undefined") {
       return Multicall.encodeMulticall(calldatas);
@@ -6167,14 +7143,14 @@ var _MulticallExtended = class {
       return encodeFunctionData({
         abi: _MulticallExtended.ABI,
         functionName: "multicall",
-        args: [previousBlockhash, calldatas]
+        args: [previousBlockhash, calldatas],
       });
     }
     const deadline = BigInt(validation);
     return encodeFunctionData({
       abi: _MulticallExtended.ABI,
       functionName: "multicall",
-      args: [deadline, calldatas]
+      args: [deadline, calldatas],
     });
   }
 };
@@ -6188,223 +7164,223 @@ var peripheryPaymentsWithFeeExtendedAbi = [
       {
         internalType: "address",
         name: "token",
-        type: "address"
+        type: "address",
       },
       {
         internalType: "uint256",
         name: "value",
-        type: "uint256"
-      }
+        type: "uint256",
+      },
     ],
     name: "pull",
     outputs: [],
     stateMutability: "payable",
-    type: "function"
+    type: "function",
   },
   {
     inputs: [],
     name: "refundNativeToken",
     outputs: [],
     stateMutability: "payable",
-    type: "function"
+    type: "function",
   },
   {
     inputs: [
       {
         internalType: "address",
         name: "token",
-        type: "address"
+        type: "address",
       },
       {
         internalType: "uint256",
         name: "amountMinimum",
-        type: "uint256"
-      }
+        type: "uint256",
+      },
     ],
     name: "sweepToken",
     outputs: [],
     stateMutability: "payable",
-    type: "function"
+    type: "function",
   },
   {
     inputs: [
       {
         internalType: "address",
         name: "token",
-        type: "address"
+        type: "address",
       },
       {
         internalType: "uint256",
         name: "amountMinimum",
-        type: "uint256"
+        type: "uint256",
       },
       {
         internalType: "address",
         name: "recipient",
-        type: "address"
-      }
+        type: "address",
+      },
     ],
     name: "sweepToken",
     outputs: [],
     stateMutability: "payable",
-    type: "function"
+    type: "function",
   },
   {
     inputs: [
       {
         internalType: "address",
         name: "token",
-        type: "address"
+        type: "address",
       },
       {
         internalType: "uint256",
         name: "amountMinimum",
-        type: "uint256"
+        type: "uint256",
       },
       {
         internalType: "uint256",
         name: "feeBips",
-        type: "uint256"
+        type: "uint256",
       },
       {
         internalType: "address",
         name: "feeRecipient",
-        type: "address"
-      }
+        type: "address",
+      },
     ],
     name: "sweepTokenWithFee",
     outputs: [],
     stateMutability: "payable",
-    type: "function"
+    type: "function",
   },
   {
     inputs: [
       {
         internalType: "address",
         name: "token",
-        type: "address"
+        type: "address",
       },
       {
         internalType: "uint256",
         name: "amountMinimum",
-        type: "uint256"
+        type: "uint256",
       },
       {
         internalType: "address",
         name: "recipient",
-        type: "address"
+        type: "address",
       },
       {
         internalType: "uint256",
         name: "feeBips",
-        type: "uint256"
+        type: "uint256",
       },
       {
         internalType: "address",
         name: "feeRecipient",
-        type: "address"
-      }
+        type: "address",
+      },
     ],
     name: "sweepTokenWithFee",
     outputs: [],
     stateMutability: "payable",
-    type: "function"
+    type: "function",
   },
   {
     inputs: [
       {
         internalType: "uint256",
         name: "amountMinimum",
-        type: "uint256"
-      }
+        type: "uint256",
+      },
     ],
     name: "unwrapWNativeToken",
     outputs: [],
     stateMutability: "payable",
-    type: "function"
+    type: "function",
   },
   {
     inputs: [
       {
         internalType: "uint256",
         name: "amountMinimum",
-        type: "uint256"
+        type: "uint256",
       },
       {
         internalType: "address",
         name: "recipient",
-        type: "address"
-      }
+        type: "address",
+      },
     ],
     name: "unwrapWNativeToken",
     outputs: [],
     stateMutability: "payable",
-    type: "function"
+    type: "function",
   },
   {
     inputs: [
       {
         internalType: "uint256",
         name: "amountMinimum",
-        type: "uint256"
+        type: "uint256",
       },
       {
         internalType: "uint256",
         name: "feeBips",
-        type: "uint256"
+        type: "uint256",
       },
       {
         internalType: "address",
         name: "feeRecipient",
-        type: "address"
-      }
+        type: "address",
+      },
     ],
     name: "unwrapWNativeTokenWithFee",
     outputs: [],
     stateMutability: "payable",
-    type: "function"
+    type: "function",
   },
   {
     inputs: [
       {
         internalType: "uint256",
         name: "amountMinimum",
-        type: "uint256"
+        type: "uint256",
       },
       {
         internalType: "address",
         name: "recipient",
-        type: "address"
+        type: "address",
       },
       {
         internalType: "uint256",
         name: "feeBips",
-        type: "uint256"
+        type: "uint256",
       },
       {
         internalType: "address",
         name: "feeRecipient",
-        type: "address"
-      }
+        type: "address",
+      },
     ],
     name: "unwrapWNativeTokenWithFee",
     outputs: [],
     stateMutability: "payable",
-    type: "function"
+    type: "function",
   },
   {
     inputs: [
       {
         internalType: "uint256",
         name: "value",
-        type: "uint256"
-      }
+        type: "uint256",
+      },
     ],
     name: "wrapETH",
     outputs: [],
     stateMutability: "payable",
-    type: "function"
-  }
+    type: "function",
+  },
 ];
 
 // evm/v3-router/utils/paymentsExtended.ts
@@ -6416,8 +7392,7 @@ var _PaymentsExtended = class {
    * Cannot be constructed.
    */
   // eslint-disable-next-line no-useless-constructor, @typescript-eslint/no-empty-function
-  constructor() {
-  }
+  constructor() {}
   static encodeUnwrapWETH9(amountMinimum, recipient, feeOptions) {
     if (typeof recipient === "string") {
       recipient = validateAndParseAddress(recipient);
@@ -6427,10 +7402,14 @@ var _PaymentsExtended = class {
         return encodeFunctionData({
           abi: _PaymentsExtended.ABI,
           functionName: "unwrapWNativeTokenWithFee",
-          args: [amountMinimum, recipient, feeBips, feeRecipient]
+          args: [amountMinimum, recipient, feeBips, feeRecipient],
         });
       }
-      return encodeFunctionData({ abi: _PaymentsExtended.ABI, functionName: "unwrapWNativeToken", args: [amountMinimum, recipient] });
+      return encodeFunctionData({
+        abi: _PaymentsExtended.ABI,
+        functionName: "unwrapWNativeToken",
+        args: [amountMinimum, recipient],
+      });
     }
     if (!!feeOptions) {
       const feeBips = encodeFeeBips(feeOptions.fee);
@@ -6438,18 +7417,23 @@ var _PaymentsExtended = class {
       return encodeFunctionData({
         abi: _PaymentsExtended.ABI,
         functionName: "unwrapWNativeTokenWithFee",
-        args: [amountMinimum, feeBips, feeRecipient]
+        args: [amountMinimum, feeBips, feeRecipient],
       });
     }
     return encodeFunctionData({
       abi: _PaymentsExtended.ABI,
       functionName: "unwrapWNativeToken",
-      args: [amountMinimum]
+      args: [amountMinimum],
     });
   }
   static encodeSweepToken(token, amountMinimum, recipient, feeOptions) {
     if (typeof recipient === "string") {
-      return Payments.encodeSweepToken(token, amountMinimum, recipient, feeOptions);
+      return Payments.encodeSweepToken(
+        token,
+        amountMinimum,
+        recipient,
+        feeOptions
+      );
     }
     if (!!feeOptions) {
       const feeBips = encodeFeeBips(feeOptions.fee);
@@ -6457,20 +7441,28 @@ var _PaymentsExtended = class {
       return encodeFunctionData({
         abi: _PaymentsExtended.ABI,
         functionName: "sweepTokenWithFee",
-        args: [token.address, amountMinimum, feeBips, feeRecipient]
+        args: [token.address, amountMinimum, feeBips, feeRecipient],
       });
     }
     return encodeFunctionData({
       abi: _PaymentsExtended.ABI,
       functionName: "sweepToken",
-      args: [token.address, amountMinimum]
+      args: [token.address, amountMinimum],
     });
   }
   static encodePull(token, amount) {
-    return encodeFunctionData({ abi: _PaymentsExtended.ABI, functionName: "pull", args: [token.address, amount] });
+    return encodeFunctionData({
+      abi: _PaymentsExtended.ABI,
+      functionName: "pull",
+      args: [token.address, amount],
+    });
   }
   static encodeWrapETH(amount) {
-    return encodeFunctionData({ abi: _PaymentsExtended.ABI, functionName: "wrapETH", args: [amount] });
+    return encodeFunctionData({
+      abi: _PaymentsExtended.ABI,
+      functionName: "wrapETH",
+      args: [amount],
+    });
   }
 };
 var PaymentsExtended = _PaymentsExtended;
@@ -6479,647 +7471,647 @@ PaymentsExtended.ABI = peripheryPaymentsWithFeeExtendedAbi;
 // evm/abis/algebra/algebraRouter.ts
 var algebraRouterABI = [
   {
-    "inputs": [
+    inputs: [
       {
-        "internalType": "address",
-        "name": "_factory",
-        "type": "address"
+        internalType: "address",
+        name: "_factory",
+        type: "address",
       },
       {
-        "internalType": "address",
-        "name": "_WNativeToken",
-        "type": "address"
+        internalType: "address",
+        name: "_WNativeToken",
+        type: "address",
       },
       {
-        "internalType": "address",
-        "name": "_poolDeployer",
-        "type": "address"
-      }
+        internalType: "address",
+        name: "_poolDeployer",
+        type: "address",
+      },
     ],
-    "stateMutability": "nonpayable",
-    "type": "constructor"
+    stateMutability: "nonpayable",
+    type: "constructor",
   },
   {
-    "inputs": [],
-    "name": "WNativeToken",
-    "outputs": [
+    inputs: [],
+    name: "WNativeToken",
+    outputs: [
       {
-        "internalType": "address",
-        "name": "",
-        "type": "address"
-      }
+        internalType: "address",
+        name: "",
+        type: "address",
+      },
     ],
-    "stateMutability": "view",
-    "type": "function"
+    stateMutability: "view",
+    type: "function",
   },
   {
-    "inputs": [
+    inputs: [
       {
-        "internalType": "int256",
-        "name": "amount0Delta",
-        "type": "int256"
+        internalType: "int256",
+        name: "amount0Delta",
+        type: "int256",
       },
       {
-        "internalType": "int256",
-        "name": "amount1Delta",
-        "type": "int256"
+        internalType: "int256",
+        name: "amount1Delta",
+        type: "int256",
       },
       {
-        "internalType": "bytes",
-        "name": "_data",
-        "type": "bytes"
-      }
+        internalType: "bytes",
+        name: "_data",
+        type: "bytes",
+      },
     ],
-    "name": "algebraSwapCallback",
-    "outputs": [],
-    "stateMutability": "nonpayable",
-    "type": "function"
+    name: "algebraSwapCallback",
+    outputs: [],
+    stateMutability: "nonpayable",
+    type: "function",
   },
   {
-    "inputs": [
+    inputs: [
       {
-        "components": [
+        components: [
           {
-            "internalType": "bytes",
-            "name": "path",
-            "type": "bytes"
+            internalType: "bytes",
+            name: "path",
+            type: "bytes",
           },
           {
-            "internalType": "address",
-            "name": "recipient",
-            "type": "address"
+            internalType: "address",
+            name: "recipient",
+            type: "address",
           },
           {
-            "internalType": "uint256",
-            "name": "deadline",
-            "type": "uint256"
+            internalType: "uint256",
+            name: "deadline",
+            type: "uint256",
           },
           {
-            "internalType": "uint256",
-            "name": "amountIn",
-            "type": "uint256"
+            internalType: "uint256",
+            name: "amountIn",
+            type: "uint256",
           },
           {
-            "internalType": "uint256",
-            "name": "amountOutMinimum",
-            "type": "uint256"
-          }
+            internalType: "uint256",
+            name: "amountOutMinimum",
+            type: "uint256",
+          },
         ],
-        "internalType": "struct ISwapRouter.ExactInputParams",
-        "name": "params",
-        "type": "tuple"
-      }
+        internalType: "struct ISwapRouter.ExactInputParams",
+        name: "params",
+        type: "tuple",
+      },
     ],
-    "name": "exactInput",
-    "outputs": [
+    name: "exactInput",
+    outputs: [
       {
-        "internalType": "uint256",
-        "name": "amountOut",
-        "type": "uint256"
-      }
+        internalType: "uint256",
+        name: "amountOut",
+        type: "uint256",
+      },
     ],
-    "stateMutability": "payable",
-    "type": "function"
+    stateMutability: "payable",
+    type: "function",
   },
   {
-    "inputs": [
+    inputs: [
       {
-        "components": [
+        components: [
           {
-            "internalType": "address",
-            "name": "tokenIn",
-            "type": "address"
+            internalType: "address",
+            name: "tokenIn",
+            type: "address",
           },
           {
-            "internalType": "address",
-            "name": "tokenOut",
-            "type": "address"
+            internalType: "address",
+            name: "tokenOut",
+            type: "address",
           },
           {
-            "internalType": "address",
-            "name": "deployer",
-            "type": "address"
+            internalType: "address",
+            name: "deployer",
+            type: "address",
           },
           {
-            "internalType": "address",
-            "name": "recipient",
-            "type": "address"
+            internalType: "address",
+            name: "recipient",
+            type: "address",
           },
           {
-            "internalType": "uint256",
-            "name": "deadline",
-            "type": "uint256"
+            internalType: "uint256",
+            name: "deadline",
+            type: "uint256",
           },
           {
-            "internalType": "uint256",
-            "name": "amountIn",
-            "type": "uint256"
+            internalType: "uint256",
+            name: "amountIn",
+            type: "uint256",
           },
           {
-            "internalType": "uint256",
-            "name": "amountOutMinimum",
-            "type": "uint256"
+            internalType: "uint256",
+            name: "amountOutMinimum",
+            type: "uint256",
           },
           {
-            "internalType": "uint160",
-            "name": "limitSqrtPrice",
-            "type": "uint160"
-          }
+            internalType: "uint160",
+            name: "limitSqrtPrice",
+            type: "uint160",
+          },
         ],
-        "internalType": "struct ISwapRouter.ExactInputSingleParams",
-        "name": "params",
-        "type": "tuple"
-      }
+        internalType: "struct ISwapRouter.ExactInputSingleParams",
+        name: "params",
+        type: "tuple",
+      },
     ],
-    "name": "exactInputSingle",
-    "outputs": [
+    name: "exactInputSingle",
+    outputs: [
       {
-        "internalType": "uint256",
-        "name": "amountOut",
-        "type": "uint256"
-      }
+        internalType: "uint256",
+        name: "amountOut",
+        type: "uint256",
+      },
     ],
-    "stateMutability": "payable",
-    "type": "function"
+    stateMutability: "payable",
+    type: "function",
   },
   {
-    "inputs": [
+    inputs: [
       {
-        "components": [
+        components: [
           {
-            "internalType": "address",
-            "name": "tokenIn",
-            "type": "address"
+            internalType: "address",
+            name: "tokenIn",
+            type: "address",
           },
           {
-            "internalType": "address",
-            "name": "tokenOut",
-            "type": "address"
+            internalType: "address",
+            name: "tokenOut",
+            type: "address",
           },
           {
-            "internalType": "address",
-            "name": "deployer",
-            "type": "address"
+            internalType: "address",
+            name: "deployer",
+            type: "address",
           },
           {
-            "internalType": "address",
-            "name": "recipient",
-            "type": "address"
+            internalType: "address",
+            name: "recipient",
+            type: "address",
           },
           {
-            "internalType": "uint256",
-            "name": "deadline",
-            "type": "uint256"
+            internalType: "uint256",
+            name: "deadline",
+            type: "uint256",
           },
           {
-            "internalType": "uint256",
-            "name": "amountIn",
-            "type": "uint256"
+            internalType: "uint256",
+            name: "amountIn",
+            type: "uint256",
           },
           {
-            "internalType": "uint256",
-            "name": "amountOutMinimum",
-            "type": "uint256"
+            internalType: "uint256",
+            name: "amountOutMinimum",
+            type: "uint256",
           },
           {
-            "internalType": "uint160",
-            "name": "limitSqrtPrice",
-            "type": "uint160"
-          }
+            internalType: "uint160",
+            name: "limitSqrtPrice",
+            type: "uint160",
+          },
         ],
-        "internalType": "struct ISwapRouter.ExactInputSingleParams",
-        "name": "params",
-        "type": "tuple"
-      }
+        internalType: "struct ISwapRouter.ExactInputSingleParams",
+        name: "params",
+        type: "tuple",
+      },
     ],
-    "name": "exactInputSingleSupportingFeeOnTransferTokens",
-    "outputs": [
+    name: "exactInputSingleSupportingFeeOnTransferTokens",
+    outputs: [
       {
-        "internalType": "uint256",
-        "name": "amountOut",
-        "type": "uint256"
-      }
+        internalType: "uint256",
+        name: "amountOut",
+        type: "uint256",
+      },
     ],
-    "stateMutability": "payable",
-    "type": "function"
+    stateMutability: "payable",
+    type: "function",
   },
   {
-    "inputs": [
+    inputs: [
       {
-        "components": [
+        components: [
           {
-            "internalType": "bytes",
-            "name": "path",
-            "type": "bytes"
+            internalType: "bytes",
+            name: "path",
+            type: "bytes",
           },
           {
-            "internalType": "address",
-            "name": "recipient",
-            "type": "address"
+            internalType: "address",
+            name: "recipient",
+            type: "address",
           },
           {
-            "internalType": "uint256",
-            "name": "deadline",
-            "type": "uint256"
+            internalType: "uint256",
+            name: "deadline",
+            type: "uint256",
           },
           {
-            "internalType": "uint256",
-            "name": "amountOut",
-            "type": "uint256"
+            internalType: "uint256",
+            name: "amountOut",
+            type: "uint256",
           },
           {
-            "internalType": "uint256",
-            "name": "amountInMaximum",
-            "type": "uint256"
-          }
+            internalType: "uint256",
+            name: "amountInMaximum",
+            type: "uint256",
+          },
         ],
-        "internalType": "struct ISwapRouter.ExactOutputParams",
-        "name": "params",
-        "type": "tuple"
-      }
+        internalType: "struct ISwapRouter.ExactOutputParams",
+        name: "params",
+        type: "tuple",
+      },
     ],
-    "name": "exactOutput",
-    "outputs": [
+    name: "exactOutput",
+    outputs: [
       {
-        "internalType": "uint256",
-        "name": "amountIn",
-        "type": "uint256"
-      }
+        internalType: "uint256",
+        name: "amountIn",
+        type: "uint256",
+      },
     ],
-    "stateMutability": "payable",
-    "type": "function"
+    stateMutability: "payable",
+    type: "function",
   },
   {
-    "inputs": [
+    inputs: [
       {
-        "components": [
+        components: [
           {
-            "internalType": "address",
-            "name": "tokenIn",
-            "type": "address"
+            internalType: "address",
+            name: "tokenIn",
+            type: "address",
           },
           {
-            "internalType": "address",
-            "name": "tokenOut",
-            "type": "address"
+            internalType: "address",
+            name: "tokenOut",
+            type: "address",
           },
           {
-            "internalType": "address",
-            "name": "deployer",
-            "type": "address"
+            internalType: "address",
+            name: "deployer",
+            type: "address",
           },
           {
-            "internalType": "address",
-            "name": "recipient",
-            "type": "address"
+            internalType: "address",
+            name: "recipient",
+            type: "address",
           },
           {
-            "internalType": "uint256",
-            "name": "deadline",
-            "type": "uint256"
+            internalType: "uint256",
+            name: "deadline",
+            type: "uint256",
           },
           {
-            "internalType": "uint256",
-            "name": "amountOut",
-            "type": "uint256"
+            internalType: "uint256",
+            name: "amountOut",
+            type: "uint256",
           },
           {
-            "internalType": "uint256",
-            "name": "amountInMaximum",
-            "type": "uint256"
+            internalType: "uint256",
+            name: "amountInMaximum",
+            type: "uint256",
           },
           {
-            "internalType": "uint160",
-            "name": "limitSqrtPrice",
-            "type": "uint160"
-          }
+            internalType: "uint160",
+            name: "limitSqrtPrice",
+            type: "uint160",
+          },
         ],
-        "internalType": "struct ISwapRouter.ExactOutputSingleParams",
-        "name": "params",
-        "type": "tuple"
-      }
+        internalType: "struct ISwapRouter.ExactOutputSingleParams",
+        name: "params",
+        type: "tuple",
+      },
     ],
-    "name": "exactOutputSingle",
-    "outputs": [
+    name: "exactOutputSingle",
+    outputs: [
       {
-        "internalType": "uint256",
-        "name": "amountIn",
-        "type": "uint256"
-      }
+        internalType: "uint256",
+        name: "amountIn",
+        type: "uint256",
+      },
     ],
-    "stateMutability": "payable",
-    "type": "function"
+    stateMutability: "payable",
+    type: "function",
   },
   {
-    "inputs": [],
-    "name": "factory",
-    "outputs": [
+    inputs: [],
+    name: "factory",
+    outputs: [
       {
-        "internalType": "address",
-        "name": "",
-        "type": "address"
-      }
+        internalType: "address",
+        name: "",
+        type: "address",
+      },
     ],
-    "stateMutability": "view",
-    "type": "function"
+    stateMutability: "view",
+    type: "function",
   },
   {
-    "inputs": [
+    inputs: [
       {
-        "internalType": "bytes[]",
-        "name": "data",
-        "type": "bytes[]"
-      }
+        internalType: "bytes[]",
+        name: "data",
+        type: "bytes[]",
+      },
     ],
-    "name": "multicall",
-    "outputs": [
+    name: "multicall",
+    outputs: [
       {
-        "internalType": "bytes[]",
-        "name": "results",
-        "type": "bytes[]"
-      }
+        internalType: "bytes[]",
+        name: "results",
+        type: "bytes[]",
+      },
     ],
-    "stateMutability": "payable",
-    "type": "function"
+    stateMutability: "payable",
+    type: "function",
   },
   {
-    "inputs": [],
-    "name": "poolDeployer",
-    "outputs": [
+    inputs: [],
+    name: "poolDeployer",
+    outputs: [
       {
-        "internalType": "address",
-        "name": "",
-        "type": "address"
-      }
+        internalType: "address",
+        name: "",
+        type: "address",
+      },
     ],
-    "stateMutability": "view",
-    "type": "function"
+    stateMutability: "view",
+    type: "function",
   },
   {
-    "inputs": [],
-    "name": "refundNativeToken",
-    "outputs": [],
-    "stateMutability": "payable",
-    "type": "function"
+    inputs: [],
+    name: "refundNativeToken",
+    outputs: [],
+    stateMutability: "payable",
+    type: "function",
   },
   {
-    "inputs": [
+    inputs: [
       {
-        "internalType": "address",
-        "name": "token",
-        "type": "address"
+        internalType: "address",
+        name: "token",
+        type: "address",
       },
       {
-        "internalType": "uint256",
-        "name": "value",
-        "type": "uint256"
+        internalType: "uint256",
+        name: "value",
+        type: "uint256",
       },
       {
-        "internalType": "uint256",
-        "name": "deadline",
-        "type": "uint256"
+        internalType: "uint256",
+        name: "deadline",
+        type: "uint256",
       },
       {
-        "internalType": "uint8",
-        "name": "v",
-        "type": "uint8"
+        internalType: "uint8",
+        name: "v",
+        type: "uint8",
       },
       {
-        "internalType": "bytes32",
-        "name": "r",
-        "type": "bytes32"
+        internalType: "bytes32",
+        name: "r",
+        type: "bytes32",
       },
       {
-        "internalType": "bytes32",
-        "name": "s",
-        "type": "bytes32"
-      }
+        internalType: "bytes32",
+        name: "s",
+        type: "bytes32",
+      },
     ],
-    "name": "selfPermit",
-    "outputs": [],
-    "stateMutability": "payable",
-    "type": "function"
+    name: "selfPermit",
+    outputs: [],
+    stateMutability: "payable",
+    type: "function",
   },
   {
-    "inputs": [
+    inputs: [
       {
-        "internalType": "address",
-        "name": "token",
-        "type": "address"
+        internalType: "address",
+        name: "token",
+        type: "address",
       },
       {
-        "internalType": "uint256",
-        "name": "nonce",
-        "type": "uint256"
+        internalType: "uint256",
+        name: "nonce",
+        type: "uint256",
       },
       {
-        "internalType": "uint256",
-        "name": "expiry",
-        "type": "uint256"
+        internalType: "uint256",
+        name: "expiry",
+        type: "uint256",
       },
       {
-        "internalType": "uint8",
-        "name": "v",
-        "type": "uint8"
+        internalType: "uint8",
+        name: "v",
+        type: "uint8",
       },
       {
-        "internalType": "bytes32",
-        "name": "r",
-        "type": "bytes32"
+        internalType: "bytes32",
+        name: "r",
+        type: "bytes32",
       },
       {
-        "internalType": "bytes32",
-        "name": "s",
-        "type": "bytes32"
-      }
+        internalType: "bytes32",
+        name: "s",
+        type: "bytes32",
+      },
     ],
-    "name": "selfPermitAllowed",
-    "outputs": [],
-    "stateMutability": "payable",
-    "type": "function"
+    name: "selfPermitAllowed",
+    outputs: [],
+    stateMutability: "payable",
+    type: "function",
   },
   {
-    "inputs": [
+    inputs: [
       {
-        "internalType": "address",
-        "name": "token",
-        "type": "address"
+        internalType: "address",
+        name: "token",
+        type: "address",
       },
       {
-        "internalType": "uint256",
-        "name": "nonce",
-        "type": "uint256"
+        internalType: "uint256",
+        name: "nonce",
+        type: "uint256",
       },
       {
-        "internalType": "uint256",
-        "name": "expiry",
-        "type": "uint256"
+        internalType: "uint256",
+        name: "expiry",
+        type: "uint256",
       },
       {
-        "internalType": "uint8",
-        "name": "v",
-        "type": "uint8"
+        internalType: "uint8",
+        name: "v",
+        type: "uint8",
       },
       {
-        "internalType": "bytes32",
-        "name": "r",
-        "type": "bytes32"
+        internalType: "bytes32",
+        name: "r",
+        type: "bytes32",
       },
       {
-        "internalType": "bytes32",
-        "name": "s",
-        "type": "bytes32"
-      }
+        internalType: "bytes32",
+        name: "s",
+        type: "bytes32",
+      },
     ],
-    "name": "selfPermitAllowedIfNecessary",
-    "outputs": [],
-    "stateMutability": "payable",
-    "type": "function"
+    name: "selfPermitAllowedIfNecessary",
+    outputs: [],
+    stateMutability: "payable",
+    type: "function",
   },
   {
-    "inputs": [
+    inputs: [
       {
-        "internalType": "address",
-        "name": "token",
-        "type": "address"
+        internalType: "address",
+        name: "token",
+        type: "address",
       },
       {
-        "internalType": "uint256",
-        "name": "value",
-        "type": "uint256"
+        internalType: "uint256",
+        name: "value",
+        type: "uint256",
       },
       {
-        "internalType": "uint256",
-        "name": "deadline",
-        "type": "uint256"
+        internalType: "uint256",
+        name: "deadline",
+        type: "uint256",
       },
       {
-        "internalType": "uint8",
-        "name": "v",
-        "type": "uint8"
+        internalType: "uint8",
+        name: "v",
+        type: "uint8",
       },
       {
-        "internalType": "bytes32",
-        "name": "r",
-        "type": "bytes32"
+        internalType: "bytes32",
+        name: "r",
+        type: "bytes32",
       },
       {
-        "internalType": "bytes32",
-        "name": "s",
-        "type": "bytes32"
-      }
+        internalType: "bytes32",
+        name: "s",
+        type: "bytes32",
+      },
     ],
-    "name": "selfPermitIfNecessary",
-    "outputs": [],
-    "stateMutability": "payable",
-    "type": "function"
+    name: "selfPermitIfNecessary",
+    outputs: [],
+    stateMutability: "payable",
+    type: "function",
   },
   {
-    "inputs": [
+    inputs: [
       {
-        "internalType": "address",
-        "name": "token",
-        "type": "address"
+        internalType: "address",
+        name: "token",
+        type: "address",
       },
       {
-        "internalType": "uint256",
-        "name": "amountMinimum",
-        "type": "uint256"
+        internalType: "uint256",
+        name: "amountMinimum",
+        type: "uint256",
       },
       {
-        "internalType": "address",
-        "name": "recipient",
-        "type": "address"
-      }
+        internalType: "address",
+        name: "recipient",
+        type: "address",
+      },
     ],
-    "name": "sweepToken",
-    "outputs": [],
-    "stateMutability": "payable",
-    "type": "function"
+    name: "sweepToken",
+    outputs: [],
+    stateMutability: "payable",
+    type: "function",
   },
   {
-    "inputs": [
+    inputs: [
       {
-        "internalType": "address",
-        "name": "token",
-        "type": "address"
+        internalType: "address",
+        name: "token",
+        type: "address",
       },
       {
-        "internalType": "uint256",
-        "name": "amountMinimum",
-        "type": "uint256"
+        internalType: "uint256",
+        name: "amountMinimum",
+        type: "uint256",
       },
       {
-        "internalType": "address",
-        "name": "recipient",
-        "type": "address"
+        internalType: "address",
+        name: "recipient",
+        type: "address",
       },
       {
-        "internalType": "uint256",
-        "name": "feeBips",
-        "type": "uint256"
+        internalType: "uint256",
+        name: "feeBips",
+        type: "uint256",
       },
       {
-        "internalType": "address",
-        "name": "feeRecipient",
-        "type": "address"
-      }
+        internalType: "address",
+        name: "feeRecipient",
+        type: "address",
+      },
     ],
-    "name": "sweepTokenWithFee",
-    "outputs": [],
-    "stateMutability": "payable",
-    "type": "function"
+    name: "sweepTokenWithFee",
+    outputs: [],
+    stateMutability: "payable",
+    type: "function",
   },
   {
-    "inputs": [
+    inputs: [
       {
-        "internalType": "uint256",
-        "name": "amountMinimum",
-        "type": "uint256"
+        internalType: "uint256",
+        name: "amountMinimum",
+        type: "uint256",
       },
       {
-        "internalType": "address",
-        "name": "recipient",
-        "type": "address"
-      }
+        internalType: "address",
+        name: "recipient",
+        type: "address",
+      },
     ],
-    "name": "unwrapWNativeToken",
-    "outputs": [],
-    "stateMutability": "payable",
-    "type": "function"
+    name: "unwrapWNativeToken",
+    outputs: [],
+    stateMutability: "payable",
+    type: "function",
   },
   {
-    "inputs": [
+    inputs: [
       {
-        "internalType": "uint256",
-        "name": "amountMinimum",
-        "type": "uint256"
+        internalType: "uint256",
+        name: "amountMinimum",
+        type: "uint256",
       },
       {
-        "internalType": "address",
-        "name": "recipient",
-        "type": "address"
+        internalType: "address",
+        name: "recipient",
+        type: "address",
       },
       {
-        "internalType": "uint256",
-        "name": "feeBips",
-        "type": "uint256"
+        internalType: "uint256",
+        name: "feeBips",
+        type: "uint256",
       },
       {
-        "internalType": "address",
-        "name": "feeRecipient",
-        "type": "address"
-      }
+        internalType: "address",
+        name: "feeRecipient",
+        type: "address",
+      },
     ],
-    "name": "unwrapWNativeTokenWithFee",
-    "outputs": [],
-    "stateMutability": "payable",
-    "type": "function"
+    name: "unwrapWNativeTokenWithFee",
+    outputs: [],
+    stateMutability: "payable",
+    type: "function",
   },
   {
-    "stateMutability": "payable",
-    "type": "receive"
-  }
+    stateMutability: "payable",
+    type: "receive",
+  },
 ];
 
 // evm/abis/IApproveAndCall.ts
@@ -7129,95 +8121,95 @@ var approveAndCallAbi = [
       {
         internalType: "address",
         name: "token",
-        type: "address"
-      }
+        type: "address",
+      },
     ],
     name: "approveMax",
     outputs: [],
     stateMutability: "payable",
-    type: "function"
+    type: "function",
   },
   {
     inputs: [
       {
         internalType: "address",
         name: "token",
-        type: "address"
-      }
+        type: "address",
+      },
     ],
     name: "approveMaxMinusOne",
     outputs: [],
     stateMutability: "payable",
-    type: "function"
+    type: "function",
   },
   {
     inputs: [
       {
         internalType: "address",
         name: "token",
-        type: "address"
-      }
+        type: "address",
+      },
     ],
     name: "approveZeroThenMax",
     outputs: [],
     stateMutability: "payable",
-    type: "function"
+    type: "function",
   },
   {
     inputs: [
       {
         internalType: "address",
         name: "token",
-        type: "address"
-      }
+        type: "address",
+      },
     ],
     name: "approveZeroThenMaxMinusOne",
     outputs: [],
     stateMutability: "payable",
-    type: "function"
+    type: "function",
   },
   {
     inputs: [
       {
         internalType: "bytes",
         name: "data",
-        type: "bytes"
-      }
+        type: "bytes",
+      },
     ],
     name: "callPositionManager",
     outputs: [
       {
         internalType: "bytes",
         name: "result",
-        type: "bytes"
-      }
+        type: "bytes",
+      },
     ],
     stateMutability: "payable",
-    type: "function"
+    type: "function",
   },
   {
     inputs: [
       {
         internalType: "address",
         name: "token",
-        type: "address"
+        type: "address",
       },
       {
         internalType: "uint256",
         name: "amount",
-        type: "uint256"
-      }
+        type: "uint256",
+      },
     ],
     name: "getApprovalType",
     outputs: [
       {
         internalType: "enum IApproveAndCall.ApprovalType",
         name: "",
-        type: "uint8"
-      }
+        type: "uint8",
+      },
     ],
     stateMutability: "nonpayable",
-    type: "function"
+    type: "function",
   },
   {
     inputs: [
@@ -7226,44 +8218,44 @@ var approveAndCallAbi = [
           {
             internalType: "address",
             name: "token0",
-            type: "address"
+            type: "address",
           },
           {
             internalType: "address",
             name: "token1",
-            type: "address"
+            type: "address",
           },
           {
             internalType: "uint256",
             name: "tokenId",
-            type: "uint256"
+            type: "uint256",
           },
           {
             internalType: "uint256",
             name: "amount0Min",
-            type: "uint256"
+            type: "uint256",
           },
           {
             internalType: "uint256",
             name: "amount1Min",
-            type: "uint256"
-          }
+            type: "uint256",
+          },
         ],
         internalType: "struct IApproveAndCall.IncreaseLiquidityParams",
         name: "params",
-        type: "tuple"
-      }
+        type: "tuple",
+      },
     ],
     name: "increaseLiquidity",
     outputs: [
       {
         internalType: "bytes",
         name: "result",
-        type: "bytes"
-      }
+        type: "bytes",
+      },
     ],
     stateMutability: "payable",
-    type: "function"
+    type: "function",
   },
   {
     inputs: [
@@ -7272,60 +8264,60 @@ var approveAndCallAbi = [
           {
             internalType: "address",
             name: "token0",
-            type: "address"
+            type: "address",
           },
           {
             internalType: "address",
             name: "token1",
-            type: "address"
+            type: "address",
           },
           {
             internalType: "uint24",
             name: "fee",
-            type: "uint24"
+            type: "uint24",
           },
           {
             internalType: "int24",
             name: "tickLower",
-            type: "int24"
+            type: "int24",
           },
           {
             internalType: "int24",
             name: "tickUpper",
-            type: "int24"
+            type: "int24",
           },
           {
             internalType: "uint256",
             name: "amount0Min",
-            type: "uint256"
+            type: "uint256",
           },
           {
             internalType: "uint256",
             name: "amount1Min",
-            type: "uint256"
+            type: "uint256",
           },
           {
             internalType: "address",
             name: "recipient",
-            type: "address"
-          }
+            type: "address",
+          },
         ],
         internalType: "struct IApproveAndCall.MintParams",
         name: "params",
-        type: "tuple"
-      }
+        type: "tuple",
+      },
     ],
     name: "mint",
     outputs: [
       {
         internalType: "bytes",
         name: "result",
-        type: "bytes"
-      }
+        type: "bytes",
+      },
     ],
     stateMutability: "payable",
-    type: "function"
-  }
+    type: "function",
+  },
 ];
 
 // evm/v3-router/utils/approveAndCall.ts
@@ -7337,34 +8329,33 @@ var _ApproveAndCall = class {
    * Cannot be constructed.
    */
   // eslint-disable-next-line no-useless-constructor, @typescript-eslint/no-empty-function
-  constructor() {
-  }
+  constructor() {}
   static encodeApproveMax(token) {
     return encodeFunctionData({
       abi: _ApproveAndCall.ABI,
       functionName: "approveMax",
-      args: [token.address]
+      args: [token.address],
     });
   }
   static encodeApproveMaxMinusOne(token) {
     return encodeFunctionData({
       abi: _ApproveAndCall.ABI,
       functionName: "approveMaxMinusOne",
-      args: [token.address]
+      args: [token.address],
     });
   }
   static encodeApproveZeroThenMax(token) {
     return encodeFunctionData({
       abi: _ApproveAndCall.ABI,
       functionName: "approveZeroThenMax",
-      args: [token.address]
+      args: [token.address],
     });
   }
   static encodeApproveZeroThenMaxMinusOne(token) {
     return encodeFunctionData({
       abi: _ApproveAndCall.ABI,
       functionName: "approveZeroThenMaxMinusOne",
-      args: [token.address]
+      args: [token.address],
     });
   }
   static encodeCallPositionManager(calldatas) {
@@ -7373,18 +8364,18 @@ var _ApproveAndCall = class {
       return encodeFunctionData({
         abi: _ApproveAndCall.ABI,
         functionName: "callPositionManager",
-        args: calldatas
+        args: calldatas,
       });
     }
     const encodedMulticall = encodeFunctionData({
       abi: NonfungiblePositionManager.ABI,
       functionName: "multicall",
-      args: [calldatas]
+      args: [calldatas],
     });
     return encodeFunctionData({
       abi: _ApproveAndCall.ABI,
       functionName: "callPositionManager",
-      args: [encodedMulticall]
+      args: [encodedMulticall],
     });
   }
   /**
@@ -7394,8 +8385,14 @@ var _ApproveAndCall = class {
    * @param addLiquidityOptions Options for adding liquidity
    * @param slippageTolerance Defines maximum slippage
    */
-  static encodeAddLiquidity(position, minimalPosition, addLiquidityOptions, slippageTolerance) {
-    let { amount0: amount0Min, amount1: amount1Min } = position.mintAmountsWithSlippage(slippageTolerance);
+  static encodeAddLiquidity(
+    position,
+    minimalPosition,
+    addLiquidityOptions,
+    slippageTolerance
+  ) {
+    let { amount0: amount0Min, amount1: amount1Min } =
+      position.mintAmountsWithSlippage(slippageTolerance);
     if (minimalPosition.amount0.quotient < amount0Min) {
       amount0Min = minimalPosition.amount0.quotient;
     }
@@ -7415,9 +8412,9 @@ var _ApproveAndCall = class {
             tickUpper: position.tickUpper,
             amount0Min,
             amount1Min,
-            recipient: addLiquidityOptions.recipient
-          }
-        ]
+            recipient: addLiquidityOptions.recipient,
+          },
+        ],
       });
     }
     return encodeFunctionData({
@@ -7429,9 +8426,9 @@ var _ApproveAndCall = class {
           token1: position.pool.token1.address,
           amount0Min,
           amount1Min,
-          tokenId: BigInt(addLiquidityOptions.tokenId)
-        }
-      ]
+          tokenId: BigInt(addLiquidityOptions.tokenId),
+        },
+      ],
     });
   }
   static encodeApprove(token, approvalType) {
@@ -7460,8 +8457,7 @@ var _SwapRouter = class {
    * Cannot be constructed.
    */
   // eslint-disable-next-line no-useless-constructor, @typescript-eslint/no-empty-function
-  constructor() {
-  }
+  constructor() {}
   /**
    * @notice Generates the calldata for a Swap with a V2 Route.
    * @param trade The V2Trade to encode.
@@ -7521,11 +8517,26 @@ var _SwapRouter = class {
   static encodeV3Swap(trade, options, routerMustCustody) {
     const calldatas = [];
     for (const route of trade.routes) {
-      const { inputAmount: inputAmountJSBI, outputAmount: outputAmountJSBI, pools, path } = route;
-      const amountIn = maximumAmountInBN(trade, options.slippageTolerance, inputAmountJSBI).quotient;
-      const amountOut = minimumAmountOutBN(trade, options.slippageTolerance, outputAmountJSBI).quotient;
+      const {
+        inputAmount: inputAmountJSBI,
+        outputAmount: outputAmountJSBI,
+        pools,
+        path,
+      } = route;
+      const amountIn = maximumAmountInBN(
+        trade,
+        options.slippageTolerance,
+        inputAmountJSBI
+      ).quotient;
+      const amountOut = minimumAmountOutBN(
+        trade,
+        options.slippageTolerance,
+        outputAmountJSBI
+      ).quotient;
       const singleHop = pools.length === 1;
-      const recipient = routerMustCustody ? ADDRESS_ZERO : validateAndParseAddress(options.recipient);
+      const recipient = routerMustCustody
+        ? ADDRESS_ZERO
+        : validateAndParseAddress(options.recipient);
       if (singleHop) {
         if (trade.tradeType === TradeType.EXACT_INPUT) {
           const exactInputSingleParams = {
@@ -7536,13 +8547,13 @@ var _SwapRouter = class {
             amountOutMinimum: amountOut,
             limitSqrtPrice: BigInt(0),
             deployer: pools[0].deployer,
-            deadline: BigInt(options.deadlineOrPreviousBlockhash || 0)
+            deadline: BigInt(options.deadlineOrPreviousBlockhash || 0),
           };
           calldatas.push(
             encodeFunctionData({
               abi: _SwapRouter.ABI,
               functionName: "exactInputSingle",
-              args: [exactInputSingleParams]
+              args: [exactInputSingleParams],
             })
           );
         } else {
@@ -7554,13 +8565,13 @@ var _SwapRouter = class {
             amountInMaximum: amountIn,
             limitSqrtPrice: BigInt(0),
             deployer: pools[0].deployer,
-            deadline: BigInt(options.deadlineOrPreviousBlockhash || 0)
+            deadline: BigInt(options.deadlineOrPreviousBlockhash || 0),
           };
           calldatas.push(
             encodeFunctionData({
               abi: _SwapRouter.ABI,
               functionName: "exactOutputSingle",
-              args: [exactOutputSingleParams]
+              args: [exactOutputSingleParams],
             })
           );
         }
@@ -7568,8 +8579,20 @@ var _SwapRouter = class {
         const pathStr = encodeMixedRouteToPath(
           {
             ...route,
-            input: new Token$1(inputAmountJSBI.currency.chainId, inputAmountJSBI.currency.wrapped.address, inputAmountJSBI.currency.decimals, inputAmountJSBI.currency.symbol || "", inputAmountJSBI.currency.name),
-            output: new Token$1(outputAmountJSBI.currency.chainId, outputAmountJSBI.currency.wrapped.address, outputAmountJSBI.currency.decimals, outputAmountJSBI.currency.symbol || "", outputAmountJSBI.currency.name)
+            input: new Token$1(
+              inputAmountJSBI.currency.chainId,
+              inputAmountJSBI.currency.wrapped.address,
+              inputAmountJSBI.currency.decimals,
+              inputAmountJSBI.currency.symbol || "",
+              inputAmountJSBI.currency.name
+            ),
+            output: new Token$1(
+              outputAmountJSBI.currency.chainId,
+              outputAmountJSBI.currency.wrapped.address,
+              outputAmountJSBI.currency.decimals,
+              outputAmountJSBI.currency.symbol || "",
+              outputAmountJSBI.currency.name
+            ),
           },
           trade.tradeType === TradeType.EXACT_OUTPUT,
           true
@@ -7581,13 +8604,13 @@ var _SwapRouter = class {
             amountIn,
             amountOutMinimum: amountOut,
             deployer: pools[0].deployer,
-            deadline: BigInt(options.deadlineOrPreviousBlockhash || 0)
+            deadline: BigInt(options.deadlineOrPreviousBlockhash || 0),
           };
           calldatas.push(
             encodeFunctionData({
               abi: _SwapRouter.ABI,
               functionName: "exactInput",
-              args: [exactInputParams]
+              args: [exactInputParams],
             })
           );
         } else {
@@ -7597,13 +8620,13 @@ var _SwapRouter = class {
             amountOut,
             amountInMaximum: amountIn,
             deployer: pools[0].deployer,
-            deadline: BigInt(options.deadlineOrPreviousBlockhash || 0)
+            deadline: BigInt(options.deadlineOrPreviousBlockhash || 0),
           };
           calldatas.push(
             encodeFunctionData({
               abi: _SwapRouter.ABI,
               functionName: "exactOutput",
-              args: [exactOutputParams]
+              args: [exactOutputParams],
             })
           );
         }
@@ -7780,11 +8803,15 @@ var _SwapRouter = class {
     trades.reduce((numOfTrades, trade) => numOfTrades + trade.routes.length, 0);
     const sampleTrade = trades[0];
     invariant5(
-      trades.every((trade) => trade.inputAmount.currency.equals(sampleTrade.inputAmount.currency)),
+      trades.every((trade) =>
+        trade.inputAmount.currency.equals(sampleTrade.inputAmount.currency)
+      ),
       "TOKEN_IN_DIFF"
     );
     invariant5(
-      trades.every((trade) => trade.outputAmount.currency.equals(sampleTrade.outputAmount.currency)),
+      trades.every((trade) =>
+        trade.outputAmount.currency.equals(sampleTrade.outputAmount.currency)
+      ),
       "TOKEN_OUT_DIFF"
     );
     invariant5(
@@ -7797,10 +8824,16 @@ var _SwapRouter = class {
     const routerMustCustody = outputIsNative || !!options.fee;
     if (options.inputTokenPermit) {
       invariant5(sampleTrade.inputAmount.currency.isToken, "NON_TOKEN_PERMIT");
-      calldatas.push(SelfPermit.encodePermit(sampleTrade.inputAmount.currency, options.inputTokenPermit));
+      calldatas.push(
+        SelfPermit.encodePermit(
+          sampleTrade.inputAmount.currency,
+          options.inputTokenPermit
+        )
+      );
     }
     for (const trade of trades) {
-      if (trade.routes.length === 1 && trade.routes[0].type === 0 /* V2 */) ; else if (trade.routes.every((r) => r.type === 1 /* V3 */)) {
+      if (trade.routes.length === 1 && trade.routes[0].type === 0 /* V2 */);
+      else if (trade.routes.every((r) => r.type === 1 /* V3 */)) {
         for (const calldata of _SwapRouter.encodeV3Swap(
           trade,
           options,
@@ -7808,20 +8841,34 @@ var _SwapRouter = class {
         )) {
           calldatas.push(calldata);
         }
-      } else ;
+      } else;
     }
-    const ZERO_IN = CurrencyAmount.fromRawAmount(sampleTrade.inputAmount.currency, 0);
-    const ZERO_OUT = CurrencyAmount.fromRawAmount(sampleTrade.outputAmount.currency, 0);
+    const ZERO_IN = CurrencyAmount.fromRawAmount(
+      sampleTrade.inputAmount.currency,
+      0
+    );
+    const ZERO_OUT = CurrencyAmount.fromRawAmount(
+      sampleTrade.outputAmount.currency,
+      0
+    );
     const minAmountOut = trades.reduce(
-      (sum2, trade) => sum2.add(minimumAmountOutBN(trade, options.slippageTolerance)),
+      (sum2, trade) =>
+        sum2.add(minimumAmountOutBN(trade, options.slippageTolerance)),
       ZERO_OUT
     );
     const quoteAmountOut = trades.reduce(
-      (sum2, trade) => sum2.add(CurrencyAmount.fromRawAmount(trade.outputAmount.currency, trade.outputAmount.quotient.toString())),
+      (sum2, trade) =>
+        sum2.add(
+          CurrencyAmount.fromRawAmount(
+            trade.outputAmount.currency,
+            trade.outputAmount.quotient.toString()
+          )
+        ),
       ZERO_OUT
     );
     const totalAmountIn = trades.reduce(
-      (sum2, trade) => sum2.add(maximumAmountInBN(trade, options.slippageTolerance)),
+      (sum2, trade) =>
+        sum2.add(maximumAmountInBN(trade, options.slippageTolerance)),
       ZERO_IN
     );
     return {
@@ -7832,7 +8879,7 @@ var _SwapRouter = class {
       outputIsNative,
       totalAmountIn,
       minimumAmountOut: minAmountOut,
-      quoteAmountOut
+      quoteAmountOut,
     };
   }
   /**
@@ -7848,11 +8895,17 @@ var _SwapRouter = class {
       inputIsNative,
       outputIsNative,
       totalAmountIn,
-      minimumAmountOut: minAmountOut
+      minimumAmountOut: minAmountOut,
     } = _SwapRouter.encodeSwaps(trades, options);
     if (routerMustCustody) {
       if (outputIsNative) {
-        calldatas.push(PaymentsExtended.encodeUnwrapWETH9(minAmountOut.quotient, options.recipient, options.fee));
+        calldatas.push(
+          PaymentsExtended.encodeUnwrapWETH9(
+            minAmountOut.quotient,
+            options.recipient,
+            options.fee
+          )
+        );
       } else {
         calldatas.push(
           PaymentsExtended.encodeSweepToken(
@@ -7864,12 +8917,21 @@ var _SwapRouter = class {
         );
       }
     }
-    if (inputIsNative && (sampleTrade.tradeType === TradeType.EXACT_OUTPUT || _SwapRouter.riskOfPartialFill(trades))) {
-      calldatas.push(encodeFunctionData({ abi: PaymentsExtended.ABI, functionName: "refundNativeToken" }));
+    if (
+      inputIsNative &&
+      (sampleTrade.tradeType === TradeType.EXACT_OUTPUT ||
+        _SwapRouter.riskOfPartialFill(trades))
+    ) {
+      calldatas.push(
+        encodeFunctionData({
+          abi: PaymentsExtended.ABI,
+          functionName: "refundNativeToken",
+        })
+      );
     }
     return {
       calldata: MulticallExtended.encodeMulticall(calldatas),
-      value: toHex(inputIsNative ? totalAmountIn.quotient : ZERO8)
+      value: toHex(inputIsNative ? totalAmountIn.quotient : ZERO8),
     };
   }
   /**
@@ -7877,7 +8939,14 @@ var _SwapRouter = class {
    * @param trades to produce call parameters for
    * @param options options for the call parameters
    */
-  static swapAndAddCallParameters(trades, options, position, addLiquidityOptions, tokenInApprovalType, tokenOutApprovalType) {
+  static swapAndAddCallParameters(
+    trades,
+    options,
+    position,
+    addLiquidityOptions,
+    tokenInApprovalType,
+    tokenOutApprovalType
+  ) {
     const {
       calldatas,
       inputIsNative,
@@ -7885,44 +8954,86 @@ var _SwapRouter = class {
       sampleTrade,
       totalAmountIn: totalAmountSwapped,
       quoteAmountOut,
-      minimumAmountOut: minAmountOut
+      minimumAmountOut: minAmountOut,
     } = _SwapRouter.encodeSwaps(trades, options);
     if (options.outputTokenPermit) {
       invariant5(quoteAmountOut.currency.isToken, "NON_TOKEN_PERMIT_OUTPUT");
-      calldatas.push(SelfPermit.encodePermit(quoteAmountOut.currency, options.outputTokenPermit));
+      calldatas.push(
+        SelfPermit.encodePermit(
+          quoteAmountOut.currency,
+          options.outputTokenPermit
+        )
+      );
     }
-    const zeroForOne = position.pool.token0.wrapped.address === totalAmountSwapped.currency.wrapped.address;
-    const { positionAmountIn, positionAmountOut } = _SwapRouter.getPositionAmounts(position, zeroForOne);
-    const tokenIn = inputIsNative ? baseSepoliaTokens.weth : positionAmountIn.currency.wrapped;
-    const tokenOut = outputIsNative ? baseSepoliaTokens.weth : positionAmountOut.currency.wrapped;
-    const amountOutRemaining = positionAmountOut.subtract(quoteAmountOut.wrapped);
-    if (amountOutRemaining.greaterThan(CurrencyAmount.fromRawAmount(positionAmountOut.currency, 0))) {
+    const zeroForOne =
+      position.pool.token0.wrapped.address ===
+      totalAmountSwapped.currency.wrapped.address;
+    const { positionAmountIn, positionAmountOut } =
+      _SwapRouter.getPositionAmounts(position, zeroForOne);
+    const tokenIn = inputIsNative
+      ? // ? baseSepoliaTokens.weth
+        pulsechainTestnetTokens.wpls
+      : positionAmountIn.currency.wrapped;
+    const tokenOut = outputIsNative
+      ? // ? baseSepoliaTokens.weth
+        pulsechainTestnetTokens.wpls
+      : positionAmountOut.currency.wrapped;
+    const amountOutRemaining = positionAmountOut.subtract(
+      quoteAmountOut.wrapped
+    );
+    if (
+      amountOutRemaining.greaterThan(
+        CurrencyAmount.fromRawAmount(positionAmountOut.currency, 0)
+      )
+    ) {
       if (outputIsNative) {
-        calldatas.push(PaymentsExtended.encodeWrapETH(amountOutRemaining.quotient));
+        calldatas.push(
+          PaymentsExtended.encodeWrapETH(amountOutRemaining.quotient)
+        );
       } else {
-        calldatas.push(PaymentsExtended.encodePull(tokenOut, amountOutRemaining.quotient));
+        calldatas.push(
+          PaymentsExtended.encodePull(tokenOut, amountOutRemaining.quotient)
+        );
       }
     }
     if (inputIsNative) {
       calldatas.push(PaymentsExtended.encodeWrapETH(positionAmountIn.quotient));
     } else {
-      calldatas.push(PaymentsExtended.encodePull(tokenIn, positionAmountIn.quotient));
+      calldatas.push(
+        PaymentsExtended.encodePull(tokenIn, positionAmountIn.quotient)
+      );
     }
     if (tokenInApprovalType !== 0 /* NOT_REQUIRED */)
-      calldatas.push(ApproveAndCall.encodeApprove(tokenIn, tokenInApprovalType));
+      calldatas.push(
+        ApproveAndCall.encodeApprove(tokenIn, tokenInApprovalType)
+      );
     if (tokenOutApprovalType !== 0 /* NOT_REQUIRED */)
-      calldatas.push(ApproveAndCall.encodeApprove(tokenOut, tokenOutApprovalType));
+      calldatas.push(
+        ApproveAndCall.encodeApprove(tokenOut, tokenOutApprovalType)
+      );
     const minimalPosition = Position.fromAmounts({
       pool: position.pool,
       tickLower: position.tickLower,
       tickUpper: position.tickUpper,
-      amount0: zeroForOne ? position.amount0.quotient.toString() : minAmountOut.quotient.toString(),
-      amount1: zeroForOne ? minAmountOut.quotient.toString() : position.amount1.quotient.toString(),
-      useFullPrecision: false
+      amount0: zeroForOne
+        ? position.amount0.quotient.toString()
+        : minAmountOut.quotient.toString(),
+      amount1: zeroForOne
+        ? minAmountOut.quotient.toString()
+        : position.amount1.quotient.toString(),
+      useFullPrecision: false,
     });
-    const slippageBn = new Percent(BigInt(options.slippageTolerance.numerator.toString()), BigInt(options.slippageTolerance.denominator.toString()));
+    const slippageBn = new Percent(
+      BigInt(options.slippageTolerance.numerator.toString()),
+      BigInt(options.slippageTolerance.denominator.toString())
+    );
     calldatas.push(
-      ApproveAndCall.encodeAddLiquidity(position, minimalPosition, addLiquidityOptions, slippageBn)
+      ApproveAndCall.encodeAddLiquidity(
+        position,
+        minimalPosition,
+        addLiquidityOptions,
+        slippageBn
+      )
     );
     if (inputIsNative) {
       calldatas.push(PaymentsExtended.encodeUnwrapWETH9(ZERO8));
@@ -7943,8 +9054,11 @@ var _SwapRouter = class {
       value = ZERO8;
     }
     return {
-      calldata: MulticallExtended.encodeMulticall(calldatas, options.deadlineOrPreviousBlockhash),
-      value: toHex(value.toString())
+      calldata: MulticallExtended.encodeMulticall(
+        calldatas,
+        options.deadlineOrPreviousBlockhash
+      ),
+      value: toHex(value.toString()),
     };
   }
   // if price impact is very high, there's a chance of hitting max/min prices resulting in a partial fill of the swap
@@ -7957,17 +9071,60 @@ var _SwapRouter = class {
     return _SwapRouter.v3TradeWithHighPriceImpact(trades);
   }
   static v3TradeWithHighPriceImpact(trade) {
-    return !(trade.routes.length === 1 && trade.routes[0].type === 0 /* V2 */) && getPriceImpact(trade).greaterThan(REFUND_ETH_PRICE_IMPACT_THRESHOLD);
+    return (
+      !((trade.routes.length === 1 && trade.routes[0].type === 0) /* V2 */) &&
+      getPriceImpact(trade).greaterThan(REFUND_ETH_PRICE_IMPACT_THRESHOLD)
+    );
   }
   static getPositionAmounts(position, zeroForOne) {
     const { amount0, amount1 } = position.mintAmounts;
-    const currencyAmount0 = CurrencyAmount.fromRawAmount(position.pool.token0, amount0);
-    const currencyAmount1 = CurrencyAmount.fromRawAmount(position.pool.token1, amount1);
-    const [positionAmountIn, positionAmountOut] = zeroForOne ? [currencyAmount0, currencyAmount1] : [currencyAmount1, currencyAmount0];
+    const currencyAmount0 = CurrencyAmount.fromRawAmount(
+      position.pool.token0,
+      amount0
+    );
+    const currencyAmount1 = CurrencyAmount.fromRawAmount(
+      position.pool.token1,
+      amount1
+    );
+    const [positionAmountIn, positionAmountOut] = zeroForOne
+      ? [currencyAmount0, currencyAmount1]
+      : [currencyAmount1, currencyAmount0];
     return { positionAmountIn, positionAmountOut };
   }
 };
 var SwapRouter = _SwapRouter;
 SwapRouter.ABI = algebraRouterABI;
 
-export { ADDITIONAL_BASES, ADDRESS_THIS, BASES_TO_CHECK_TRADES_AGAINST, BASE_SWAP_COST_STABLE_SWAP, BASE_SWAP_COST_V2, BASE_SWAP_COST_V3, BATCH_MULTICALL_CONFIGS, BETTER_TRADE_LESS_HOPS_THRESHOLD, BIG_INT_TEN, BIPS_BASE, COST_PER_EXTRA_HOP_STABLE_SWAP, COST_PER_EXTRA_HOP_V2, COST_PER_HOP_V3, COST_PER_INIT_TICK, COST_PER_UNINIT_TICK, CUSTOM_BASES, MIN_BNB, MIXED_ROUTE_QUOTER_ADDRESSES, MSG_SENDER, PoolType, RouteType, SMART_ROUTER_ADDRESSES, smartRouter_exports as SmartRouter, stableSwap_exports as StableSwap, SwapRouter, transformer_exports as Transformer, V2_FEE_PATH_PLACEHOLDER, V3_QUOTER_ADDRESSES, getStableSwapPools, isStableSwapSupported, usdGasTokensByChain };
+export {
+  ADDITIONAL_BASES,
+  ADDRESS_THIS,
+  BASES_TO_CHECK_TRADES_AGAINST,
+  BASE_SWAP_COST_STABLE_SWAP,
+  BASE_SWAP_COST_V2,
+  BASE_SWAP_COST_V3,
+  BATCH_MULTICALL_CONFIGS,
+  BETTER_TRADE_LESS_HOPS_THRESHOLD,
+  BIG_INT_TEN,
+  BIPS_BASE,
+  COST_PER_EXTRA_HOP_STABLE_SWAP,
+  COST_PER_EXTRA_HOP_V2,
+  COST_PER_HOP_V3,
+  COST_PER_INIT_TICK,
+  COST_PER_UNINIT_TICK,
+  CUSTOM_BASES,
+  MIN_BNB,
+  MIXED_ROUTE_QUOTER_ADDRESSES,
+  MSG_SENDER,
+  PoolType,
+  RouteType,
+  SMART_ROUTER_ADDRESSES,
+  smartRouter_exports as SmartRouter,
+  stableSwap_exports as StableSwap,
+  SwapRouter,
+  transformer_exports as Transformer,
+  V2_FEE_PATH_PLACEHOLDER,
+  V3_QUOTER_ADDRESSES,
+  getStableSwapPools,
+  isStableSwapSupported,
+  usdGasTokensByChain,
+};

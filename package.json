@@ -19,7 +19,7 @@
     ],
     "dependencies": {
         "@cryptoalgebra/custom-pools-sdk": "npm:@anon.3mpx/integral-sdk@1.0.0",
-        "@pancakeswap/sdk": "5.7.6",
+        "@pancakeswap/sdk": "npm:@anon.3mpx/tpls-sdk@1.0.1",
         "@pancakeswap/swap-sdk-core": "1.0.0",
         "@pancakeswap/token-lists": "0.0.9",
         "@pancakeswap/v3-sdk": "3.7.9",

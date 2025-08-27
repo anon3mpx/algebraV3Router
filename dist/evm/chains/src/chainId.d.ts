@@ -1,5 +1,5 @@
 export declare enum ChainId {
-    BASE_SEPOLIA = 84532
+  PULSECHAIN_TESTNET = 943,
 }
 export declare const testnetChainIds: never[];
 //# sourceMappingURL=chainId.d.ts.map
